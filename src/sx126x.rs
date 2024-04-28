@@ -8,7 +8,7 @@ use super::{
     spi_interface::Interface,
 };
 use crate::{
-    shared::{OpCode, RadioError, Register},
+    shared::{OpCode, RadioError, RadioPins, Register},
     spi_interface::{Spi_, RADIO_BUF_SIZE},
 };
 
@@ -277,9 +277,7 @@ impl Radio {
     pub fn new(
         config: RadioConfig,
         spi: Spi_,
-        reset: Pin,
-        busy: Pin,
-        cs: Pin,
+        pins: RadioPins,
         tx_ch: DmaChannel,
         rx_ch: DmaChannel,
     ) -> Result<Self, RadioError> {
@@ -287,9 +285,7 @@ impl Radio {
             config,
             interface: Interface {
                 spi,
-                reset,
-                busy,
-                cs,
+                pins,
                 tx_ch,
                 rx_ch,
                 read_buf: [0; RADIO_BUF_SIZE],

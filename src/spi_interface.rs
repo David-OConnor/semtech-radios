@@ -23,13 +23,11 @@ pub const RADIO_BUF_SIZE: usize = 255;
 const AHB_FREQ: u32 = 170_000_000; // todo: temp hard-coded
 const DMA_PERIPH: DmaPeriph = DmaPeriph::Dma1; // todo: temp hard-coded
 
-use crate::shared::Register;
+use crate::shared::{RadioPins, Register};
 
 pub struct Interface {
     pub spi: Spi_,
-    pub reset: Pin,
-    pub busy: Pin,
-    pub cs: Pin,
+    pub pins: RadioPins,
     pub tx_ch: DmaChannel,
     pub rx_ch: DmaChannel,
     pub read_buf: [u8; RADIO_BUF_SIZE],
@@ -41,9 +39,9 @@ pub struct Interface {
 impl Interface {
     pub fn reset(&mut self) {
         // todo: Should only need 100us.
-        self.reset.set_low();
+        self.pins.reset.set_low();
         delay_us(700, AHB_FREQ);
-        self.reset.set_high();
+        self.pins.reset.set_high();
     }
 
     /// Wait for the radio to be ready to accept commands, using the busy pin. If the busy pin is high,
@@ -51,7 +49,7 @@ impl Interface {
     pub fn wait_on_busy(&mut self) -> Result<(), RadioError> {
         let mut i = 0;
 
-        while self.busy.is_high() {
+        while self.pins.busy.is_high() {
             i += 1;
             if i >= MAX_ITERS {
                 println!("Exceeded max iters on wait on busy.");
@@ -65,12 +63,12 @@ impl Interface {
     pub fn write_op_word(&mut self, code: OpCode, word: u8) -> Result<(), RadioError> {
         self.wait_on_busy()?;
 
-        self.cs.set_low();
+        self.pins.cs.set_low();
         if self.spi.write(&[code as u8, word]).is_err() {
-            self.cs.set_high();
+            self.pins.cs.set_high();
             return Err(RadioError::Spi);
         };
-        self.cs.set_high();
+        self.pins.cs.set_high();
 
         Ok(())
     }
@@ -81,12 +79,12 @@ impl Interface {
 
         self.wait_on_busy()?;
 
-        self.cs.set_low();
+        self.pins.cs.set_low();
         if self.spi.transfer(&mut buf).is_err() {
-            self.cs.set_high();
+            self.pins.cs.set_high();
             return Err(RadioError::Spi);
         };
-        self.cs.set_high();
+        self.pins.cs.set_high();
 
         // todo: Status is buf[1]. Use it? How do we interpret it?
         Ok(buf[2])
@@ -98,7 +96,7 @@ impl Interface {
 
         self.wait_on_busy()?;
 
-        self.cs.set_low();
+        self.pins.cs.set_low();
         if self
             .spi
             .write(&[
@@ -109,10 +107,10 @@ impl Interface {
             ])
             .is_err()
         {
-            self.cs.set_high();
+            self.pins.cs.set_high();
             return Err(RadioError::Spi);
         };
-        self.cs.set_high();
+        self.pins.cs.set_high();
 
         Ok(())
     }
@@ -125,7 +123,7 @@ impl Interface {
 
         self.wait_on_busy()?;
 
-        self.cs.set_low();
+        self.pins.cs.set_low();
         if self
             .spi
             .transfer_type2(
@@ -134,10 +132,10 @@ impl Interface {
             )
             .is_err()
         {
-            self.cs.set_high();
+            self.pins.cs.set_high();
             return Err(RadioError::Spi);
         };
-        self.cs.set_high();
+        self.pins.cs.set_high();
 
         Ok(read_buf[4])
     }
@@ -146,12 +144,12 @@ impl Interface {
     pub fn write(&mut self, write_buffer: &[u8]) -> Result<(), RadioError> {
         self.wait_on_busy()?;
 
-        self.cs.set_low();
+        self.pins.cs.set_low();
         if self.spi.write(write_buffer).is_err() {
-            self.cs.set_high();
+            self.pins.cs.set_high();
             return Err(RadioError::Spi);
         }
-        self.cs.set_high();
+        self.pins.cs.set_high();
 
         Ok(())
     }
@@ -170,7 +168,7 @@ impl Interface {
 
         self.wait_on_busy()?;
 
-        self.cs.set_low();
+        self.pins.cs.set_low();
         unsafe {
             self.spi.write_dma(
                 &self.write_buf[..2 + payload.len()],
@@ -199,7 +197,7 @@ impl Interface {
 
         self.wait_on_busy()?;
 
-        self.cs.set_low();
+        self.pins.cs.set_low();
         unsafe {
             self.spi.transfer_dma(
                 &self.write_buf[0..buf_end],
@@ -219,12 +217,12 @@ impl Interface {
     pub fn read(&mut self, buffer: &mut [u8]) -> Result<(), RadioError> {
         self.wait_on_busy()?;
 
-        self.cs.set_low();
+        self.pins.cs.set_low();
         if self.spi.transfer(buffer).is_err() {
-            self.cs.set_high();
+            self.pins.cs.set_high();
             return Err(RadioError::Spi);
         }
-        self.cs.set_high();
+        self.pins.cs.set_high();
 
         Ok(())
     }
@@ -248,12 +246,12 @@ impl Interface {
     // pub fn read(&mut self, write_buffer: &[u8], read_buffer: &mut [u8]) -> Result<(), RadioError> {
     //     self.wait_on_busy()?;
     //
-    //     self.cs.set_low();
+    //     self.pins.cs.set_low();
     //     if self.spi.transfer_type2(write_buffer, read_buffer).is_err() {
-    //         self.cs.set_high();
+    //         self.pins.cs.set_high();
     //         return Err(RadioError::SPI);
     //     }
-    //     self.cs.set_high();
+    //     self.pins.cs.set_high();
     //
     //     Ok(())
     // }

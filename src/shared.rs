@@ -1,4 +1,12 @@
+use hal::gpio::Pin;
+
 use crate::sx126x::{CommandStatus, OperatingModeRead};
+
+pub struct RadioPins {
+    pub cs: Pin,
+    pub busy: Pin,
+    pub reset: Pin,
+}
 
 /// Split a u16 address into two bytes.
 pub fn split_addr(addr: u16) -> (u8, u8) {
