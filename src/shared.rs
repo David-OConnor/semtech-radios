@@ -84,13 +84,12 @@ pub enum OpCode {
     SetLoRaSymbTimeout = 0xA0,
 }
 
-// todo: Make sure this generalizes
 #[derive(Clone, Copy)]
 #[allow(dead_code)]
 #[repr(u16)]
 /// Registers, to read and write following the appropriate OpCode.
 /// See DS, section 12.1: Register Table
-pub enum Register {
+pub enum Register126x {
     HoppingEnabled = 0x0385,
     PacketLength = 0x0386, // FSK
     NbHoppingBLocks = 0x0387,
@@ -144,4 +143,62 @@ pub enum Register {
     RxGainRetention0 = 0x029f,
     RxGainRetention1 = 0x02a0,
     RxGainRetention2 = 0x02a1,
+}
+
+#[derive(Clone, Copy)]
+#[allow(dead_code)]
+#[repr(u16)]
+/// See DS, table 13-1: Register Table
+pub enum Register128x {
+    RxGain = 0x891,
+    ManualGainSetting = 0x895,
+    LnaGainValue = 0x89e,
+    LnaGainControl = 0x89f,
+    SynchPeakAttenuation = 0x8c2,
+    PayloadLength = 0x901,
+    LoraHeaderMode = 0x903,
+    RangingRequestAddressByte3 = 0x912,
+    RangingRequestAddressByte2 = 0x913,
+    RangingRequestAddressByte1 = 0x914,
+    RangingRequestAddressByte0 = 0x915,
+    RangingDeviceAddressByte3 = 0x916,
+    RangingDeviceAddressByte2 = 0x917,
+    RangingDeviceAddressByte1 = 0x918,
+    RangingDeviceAddressByte0 = 0x919,
+    RangingFilterWindowSize = 0x91e,
+    ResetRangingFilter = 0x923,
+    RangingResultMux = 0x924,
+    SfAdditionalConfiguration = 0x925,
+    // SKipping other ranging regs here for now.
+    FrequencyErrorCorrection = 0x93C,
+    LoraSynchWordA = 0x944,
+    LoraSynchWordB = 0x945, // todo: Typo in DS:? Listed as 0x955.
+    FeiByte2 = 0x954,
+    FeiByte1 = 0x955,
+    FeiByte0 = 0x956,
+    PacketPreambleSettings = 0x9c1,
+    WhiteningInitialValue = 0x9c5,
+    CrcPolynomialDefinitionMsb = 0x9c6,
+    CrcPolynomialDefinitionLsb = 0x9c7,
+    // CrcPolynomialSeedByte2 = 0x9c7, // todo what? Duplicate
+    // CrcPolynomialSeedByte1 = 0x9c8,
+    // CrcPolynomialSeedByte0 = 0x9c9,
+    // CrcMsbInitialValue = 0x9c8, // todo: More dupes.
+    // CrcLsbInitialValue = 0x9c9,
+    SynchAddressControl = 0x9cd,
+    SyncAddress1Byte4 = 0x9ce,
+    SyncAddress1Byte3 = 0x9cf,
+    SyncAddress1Byte2 = 0x9d0,
+    SyncAddress1Byte1 = 0x9d1,
+    SyncAddress1Byte0 = 0x9d2,
+    SyncAddress2Byte4 = 0x9c3,
+    SyncAddress2Byte3 = 0x9c4,
+    SyncAddress2Byte2 = 0x9d5,
+    SyncAddress2Byte1 = 0x9d6,
+    SyncAddress2Byte0 = 0x9d7,
+    SyncAddress3Byte4 = 0x9c8,
+    SyncAddress3Byte3 = 0x9c9,
+    SyncAddress3Byte2 = 0x9da,
+    SyncAddress3Byte1 = 0x9db,
+    SyncAddress3Byte0 = 0x9dc,
 }

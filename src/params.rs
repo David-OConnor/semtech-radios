@@ -26,7 +26,8 @@ pub enum GfskBandwidth {
     // todo: Complete A/R
 }
 
-/// DS, Table 13-47. Mod param 1.
+/// (SX126x) DS, Table 13-47. Mod param 1.
+/// (SX128x) DS, Table 14-47.
 /// "A higher spreading factor provides better receiver sensitivity at the expense of longer
 /// transmission times (time-on-air)."
 #[repr(u8)]
@@ -43,6 +44,29 @@ pub enum LoraSpreadingFactor {
     SF12 = 0x0C,
 }
 
+impl LoraSpreadingFactor {
+    /// Register value for sx128x. 1126x uses the u8 value for now, for backwards compat.
+    /// The same spreading factors are available on both, but with reversed reg hex positions.
+    ///
+    /// "After SetModulationParams command:
+    /// If the Spreading Factor selected is SF5 or SF6, it is required to use WriteRegister( 0x925, 0x1E )
+    /// If the Spreading Factor is SF7 or SF-8 then the command WriteRegister( 0x925, 0x37 ) must be used
+    /// If the Spreading Factor is SF9, SF10, SF11 or SF12, then the command WriteRegister( 0x925, 0x32 ) must be used
+    /// In all cases 0x1 must be written to the Frequency Error Compensation mode register 0x093C"
+    pub fn reg_sx128x(&self) -> u8 {
+        match self {
+            Self::SF5 => 0x50,
+            Self::SF6 => 0x60,
+            Self::SF7 => 0x70,
+            Self::SF8 => 0x80,
+            Self::SF9 => 0x90,
+            Self::SF10 => 0xA0,
+            Self::SF11 => 0xB0,
+            Self::SF12 => 0xC0,
+        }
+    }
+}
+
 /// DS, Table 13-47. Mod param 2.
 /// "An increase in signal bandwidth permits the use of a higher effective data rate, thus reducing transmission time at the
 /// expense of reduced sensitivity improvement."
@@ -51,7 +75,7 @@ pub enum LoraSpreadingFactor {
 #[repr(u8)]
 #[derive(Clone, Copy, PartialEq)]
 #[allow(non_camel_case_types, dead_code)]
-pub enum LoraBandwidth {
+pub enum LoraBandwidthSX126x {
     BW_7 = 0x00,
     BW_10 = 0x08,
     BW_15 = 0x01,
@@ -66,7 +90,19 @@ pub enum LoraBandwidth {
     BW_500 = 0x06,
 }
 
-/// DS, Table 13-49. Mod param 3.
+#[repr(u8)]
+#[derive(Clone, Copy, PartialEq)]
+#[allow(non_camel_case_types, dead_code)]
+/// Table 14-48
+pub enum LoraBandwidthSX128x {
+    BW_1600 = 0x0a,
+    BW_800 = 0x18,
+    BW_400 = 0x26,
+    BW_200 = 0x34,
+}
+
+/// SX126x: DS, Table 13-49. Mod param 3.
+/// SX128x: DS, Table 14-49.
 /// "A higher coding rate provides better noise immunity at the expense of longer transmission time. In normal conditions a
 /// factor of 4/5 provides the best trade-off; in the presence of strong interfererence a higher coding rate may be used. Error
 /// correction code does not have to be known in advance by the receiver since it is encoded in the header part of the packet."
@@ -82,12 +118,18 @@ pub enum LoraCodingRate {
     CR_4_7 = 3,
     /// raw/total bits: 4/8. Overhead ratio: 2.0
     CR_4_8 = 4,
+    /// These CR_LIs are sx128x only:
+    /// "* A new interleaving scheme has been implemented to increase robustness to burst interference and/or strong Doppler
+    /// events. The FEC has been kept the same to limit the impact on complexity."
+    CR_LI_4_5 = 5,
+    CR_LI_4_6 = 6,
+    CR_LI_4_7 = 8,
 }
 
 #[repr(u8)]
 #[derive(Clone, Copy)]
 #[allow(dead_code)]
-/// Table 13-50. Mod param 4.
+/// (SX126x only) Table 13-50. Mod param 4.
 /// "For low data rates (typically for high SF or low BW) and very long payloads which may last several seconds in the air, the low
 /// data rate optimization (LDRO) can be enabled. This reduces the number of bits per symbol to the given SF minus two (see
 /// Section 6.1.4 "LoRa® Time-on-Air" on page 41) in order to allow the receiver to have a better tracking of the LoRa® signal.
@@ -99,8 +141,9 @@ pub enum LoraLdrOptimization {
 }
 
 /// See DS, section 6.1.1: Modulation Parameter.
+#[derive(Clone)]
 pub struct ModulationParamsLora {
-    pub mod_bandwidth: LoraBandwidth,
+    pub mod_bandwidth: LoraBandwidthSX126x,
     pub spreading_factor: LoraSpreadingFactor,
     pub coding_rate: LoraCodingRate,
     pub low_data_rate_optimization: LoraLdrOptimization,
@@ -113,7 +156,7 @@ impl Default for ModulationParamsLora {
     /// With a 64-byte payload, this results in 3-60ms airtime., depending on payload len.
     fn default() -> Self {
         Self {
-            mod_bandwidth: LoraBandwidth::BW_500,
+            mod_bandwidth: LoraBandwidthSX126x::BW_500,
             spreading_factor: LoraSpreadingFactor::SF5,
             /// "In normal conditions a
             /// factor of 4/5 provides the best trade-off; in the presence of strong interferers a higher
@@ -124,7 +167,8 @@ impl Default for ModulationParamsLora {
     }
 }
 
-/// DS, Table 13-67. Packet param 3.
+/// SX126x DS, Table 13-67. Packet param 3.
+/// SX128x DS, Table 14-51.
 /// Also, Section 6.1.3. "The LoRa® modem employs two types of packet formats: explicit and implicit. The explicit
 /// packet includes a short header
 /// that contains information about the number of bytes, coding rate and whether a CRC is used in the packet."
@@ -134,10 +178,12 @@ pub enum LoraHeaderType {
     /// Explict header
     VariableLength = 0x00,
     /// Implicit header
-    FixedLength = 0x01,
+    FixedLengthSx126x = 0x01,
+    FixedLengthSx128x = 0x80,
 }
 
 /// See DS, section 13.4.6.2.
+#[derive(Clone)]
 pub struct PacketParamsLora {
     /// The LoRa® packet starts with a preamble sequence which is used to synchronize the receiver with the incoming signal. By
     /// default the packet is configured with a 12-symbol long sequence. This is a programmable variable so the preamble length

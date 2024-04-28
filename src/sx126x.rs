@@ -4,11 +4,11 @@ use defmt::println;
 use hal::{dma::DmaChannel, gpio::Pin};
 
 use super::{
-    params::{LoraBandwidth, ModulationParamsLora, PacketParamsLora},
+    params::{LoraBandwidthSX126x, ModulationParamsLora, PacketParamsLora},
     spi_interface::Interface,
 };
 use crate::{
-    shared::{OpCode, RadioError, RadioPins, Register},
+    shared::{OpCode, RadioError, RadioPins, Register126x},
     spi_interface::{Spi_, RADIO_BUF_SIZE},
 };
 
@@ -223,6 +223,7 @@ pub enum CommandStatus {
 
 /// See [this interactive tool for info on how these parameters effect OTA time etc](https://www.semtech.com/design-support/lora-calculator)
 /// It also includes consumption, RFIO schematics etc. Use `Shared RFIO`, vice a switch; breaks the calculator.
+#[derive(Clone)]
 pub struct RadioConfig {
     pub packet_type: PacketType,
     /// RF frequency in Hz.
@@ -379,25 +380,25 @@ impl Radio {
     /// See DS, section 9.6: Receive (RX) Mode).
     fn set_rxgain_retention(&mut self) -> Result<(), RadioError> {
         self.interface
-            .write_reg_word(Register::RxGainRetention0, 0x01)?;
+            .write_reg_word(Register126x::RxGainRetention0, 0x01)?;
         self.interface
-            .write_reg_word(Register::RxGainRetention1, 0x08)?;
+            .write_reg_word(Register126x::RxGainRetention1, 0x08)?;
         self.interface
-            .write_reg_word(Register::RxGainRetention2, 0xac)
+            .write_reg_word(Register126x::RxGainRetention2, 0xac)
     }
 
     /// See DS, section 15.2.2.
     fn tx_clamp_workaround(&mut self) -> Result<(), RadioError> {
-        let val = self.interface.read_reg_word(Register::TxClampConfig)?;
+        let val = self.interface.read_reg_word(Register126x::TxClampConfig)?;
         self.interface
-            .write_reg_word(Register::TxClampConfig, val | 0x1e)
+            .write_reg_word(Register126x::TxClampConfig, val | 0x1e)
     }
 
     /// DS, section 16.1.2. Adapted from pseudocode there.
     fn mod_quality_workaround(&mut self) -> Result<(), RadioError> {
-        let mut value = self.interface.read_reg_word(Register::TxModulation)?;
+        let mut value = self.interface.read_reg_word(Register126x::TxModulation)?;
         if self.config.packet_type == PacketType::Lora
-            && self.config.modulation_params.mod_bandwidth == LoraBandwidth::BW_500
+            && self.config.modulation_params.mod_bandwidth == LoraBandwidthSX126x::BW_500
         {
             value &= 0xFB;
         } else {
@@ -405,7 +406,8 @@ impl Radio {
         }
 
         // todo: QC how this works with u8 vs u16.
-        self.interface.write_reg_word(Register::TxModulation, value)
+        self.interface
+            .write_reg_word(Register126x::TxModulation, value)
     }
 
     /// See DS, section 15.3.2
@@ -413,10 +415,11 @@ impl Radio {
     /// timeout event, if any."
     pub fn implicit_header_to_workaround(&mut self) -> Result<(), RadioError> {
         // todo DS typo: Shows 0920 which is a diff one in code snipped.
-        self.interface.write_reg_word(Register::RtcControl, 0x00)?;
-        let val = self.interface.read_reg_word(Register::EventMask)?;
         self.interface
-            .write_reg_word(Register::EventMask, val | 0x02)
+            .write_reg_word(Register126x::RtcControl, 0x00)?;
+        let val = self.interface.read_reg_word(Register126x::EventMask)?;
+        self.interface
+            .write_reg_word(Register126x::EventMask, val | 0x02)
     }
 
     /// Send modulation parameters found in the config, to the radio.
@@ -490,6 +493,7 @@ impl Radio {
                 p2 = preamble_len[1];
                 p3 = self.config.packet_params.header_type as u8;
                 p4 = self.config.packet_params.payload_len;
+                // todo: This works for crc_en on sx126x, but enabled is 0x20 on Sx128x
                 p5 = self.config.packet_params.crc_enabled as u8;
                 p6 = self.config.packet_params.invert_iq as u8;
             }
@@ -893,9 +897,9 @@ impl Radio {
         let sync_word_bytes = (network as u16).to_be_bytes();
 
         self.interface
-            .write_reg_word(Register::LoraSyncWordMsb, sync_word_bytes[0])?;
+            .write_reg_word(Register126x::LoraSyncWordMsb, sync_word_bytes[0])?;
         self.interface
-            .write_reg_word(Register::LoraSyncWordLsb, sync_word_bytes[1])?;
+            .write_reg_word(Register126x::LoraSyncWordLsb, sync_word_bytes[1])?;
 
         Ok(())
     }
