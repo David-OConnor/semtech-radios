@@ -36,10 +36,12 @@ pub enum RadioError {
     UnexpectedStatus(u8),
 }
 
-// todo: Make sure this generalizes.
 #[derive(Clone, Copy, PartialEq)]
 #[allow(dead_code)]
 #[repr(u8)]
+/// Sx126x: See Table 11-1.
+/// todo: I think think this table was lifted from a rust lib, and is a mix of 126x and 128x commands.
+/// todo: FOr now, use for sx126x, and overrite these for sx128x below in the method.
 pub enum OpCode {
     GetStatus = 0xC0,
     WriteRegister = 0x0D,
@@ -82,6 +84,47 @@ pub enum OpCode {
     SetDIO2AsRfSwitchCtrl = 0x9d,
     SetStopRxTimerOnPreamble = 0x9F,
     SetLoRaSymbTimeout = 0xA0,
+    // below: sx128x only. Ommitted for now due to conflicts.
+    // SetSaveContext = 0xd5,
+    // SetAutoTx = 0x98,
+    // SetLongPreamble = 0x9b,
+    // SetUartSpeed = 0x9d,
+    // SetRangingRole = 0xa3,
+    // SetAdvancedRnaging = 0x91,
+}
+
+impl OpCode {
+    /// Register value for sx128x. 126x uses the u8 value for now, for backwards compat.
+    /// The same spreading factors are available on both, but with reversed reg hex positions.
+    /// todo: Commented-out lines are present on 126x, but absent on sx128x.
+    pub fn val_sx128x(&self) -> u8 {
+        match self {
+            Self::WriteRegister => 0x18,
+            Self::ReadRegister => 0x19,
+            Self::WriteBuffer => 0x1a,
+            Self::ReadBuffer => 0x1b,
+            Self::GetPacketType => 0x03,
+            // Self::SetPAConfig => 0x95,
+            Self::GetRxBufferStatus => 0x17,
+            Self::GetPacketStatus => 0x1d,
+            Self::GetRSSIInst => 0x1f,
+            // Self::GetStats => 0x10,
+            // Self::ResetStats => 0x00,
+            Self::SetDioIrqParams => 0x8d,
+            Self::GetIrqStatus => 0x15,
+            Self::ClearIrqStatus => 0x97,
+            // Self::Calibrate => 0x89,
+            // Self::CalibrateImage => 0x98,
+            // Self::GetDeviceErrors => 0x17,
+            // Self::ClrErrors => 0x07,
+            // Self::SetTCXOMode => 0x97,
+            // Self::SetTxFallbackMode => 0x93,
+            // Self::SetDIO2AsRfSwitchCtrl => 0x9d,
+            // Self::SetStopRxTimerOnPreamble => 0x9F,
+            // Self::SetLoRaSymbTimeout => 0xA0,
+            _ => *self as u8,
+        }
+    }
 }
 
 #[derive(Clone, Copy)]

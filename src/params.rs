@@ -53,7 +53,7 @@ impl LoraSpreadingFactor {
     /// If the Spreading Factor is SF7 or SF-8 then the command WriteRegister( 0x925, 0x37 ) must be used
     /// If the Spreading Factor is SF9, SF10, SF11 or SF12, then the command WriteRegister( 0x925, 0x32 ) must be used
     /// In all cases 0x1 must be written to the Frequency Error Compensation mode register 0x093C"
-    pub fn reg_sx128x(&self) -> u8 {
+    pub fn val_sx128x(&self) -> u8 {
         match self {
             Self::SF5 => 0x50,
             Self::SF6 => 0x60,
