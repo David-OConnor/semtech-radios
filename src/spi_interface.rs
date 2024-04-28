@@ -1,14 +1,23 @@
 //! SPI interface commands for the radio.
 
-use crate::shared;
 use defmt::println;
-use hal::dma::{DmaChannel, DmaPeriph};
-use hal::{delay_us, dma::ChannelCfg, gpio::Pin};
+use hal::{
+    delay_us,
+    dma::{ChannelCfg, DmaChannel, DmaPeriph},
+    gpio::Pin,
+    pac::SPI1,
+    spi::Spi,
+};
+
+use crate::{
+    shared,
+    shared::{OpCode, RadioError, MAX_ITERS},
+};
 
 const AHB_FREQ: u32 = 170_000_000; // todo: temp hard-coded
 const DMA_PERIPH: DmaPeriph = DmaPeriph::Dma1; // todo: temp hard-coded
 
-use super::sx126x::{OpCode, RadioError, Register, Spi_, MAX_ITERS};
+use crate::shared::Register;
 
 pub struct Interface {
     pub spi: Spi_,
@@ -17,8 +26,10 @@ pub struct Interface {
     pub cs: Pin,
     pub tx_ch: DmaChannel,
     pub rx_ch: DmaChannel,
-    pub read_buf: [u8; 256],
-    pub write_buf: [u8; 256],
+    pub read_buf: [u8; RADIO_BUF_SIZE],
+    pub write_buf: [u8; RADIO_BUF_SIZE],
+    pub rx_payload_len: u8,
+    pub rx_payload_start: u8,
 }
 
 impl Interface {
@@ -211,6 +222,21 @@ impl Interface {
 
         Ok(())
     }
+
+    /// // DS, Table 13-27: ReadBuffer SPI Transaction: Payload starts at byte 3, using the radio's API.
+    /// Mutable for use with encryption.
+    /// TODO: move to radio mod.
+    // fn rx_payload_from_buf(&mut self) -> &'static mut [u8] {
+    fn rx_payload_from_buf(&mut self) -> &mut [u8] {
+        // fn rx_payload_from_buf() -> &'static [u8] {
+        // Note: This is the payload length as reported by the radio.
+        let payload_len = self.rx_payload_len as usize;
+        let payload_start = self.rx_payload_start as usize;
+        let payload_start_i = 3 + payload_start;
+
+        unsafe { &mut self.read_buf[payload_start_i..payload_start_i + payload_len] }
+    }
+
     //
     // /// Request a read, filling the provided buffer.
     // pub fn read(&mut self, write_buffer: &[u8], read_buffer: &mut [u8]) -> Result<(), RadioError> {
@@ -226,3 +252,9 @@ impl Interface {
     //     Ok(())
     // }
 }
+
+pub type Spi_ = Spi<SPI1>;
+
+// Note: There's some ambiguity over whether this is 255, or 256, but it needs to fix as a u8 in
+// the max payload len param.
+pub const RADIO_BUF_SIZE: usize = 255;
