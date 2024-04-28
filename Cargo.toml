@@ -1,0 +1,11 @@
+[package]
+name = "semtech_radios"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+defmt = "^0.3.5"
+
+hal = { package = "stm32-hal2", path = "../stm32-hal", features = ["g431", "g4rt", "usb", "can_fd_g"] }
