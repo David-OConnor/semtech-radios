@@ -7,10 +7,9 @@ use super::{
     params::{LoraBandwidth, ModulationParamsLora, PacketParamsLora},
     spi_interface::Interface,
 };
-use crate::spi_interface::RADIO_BUF_SIZE;
 use crate::{
     shared::{OpCode, RadioError, Register},
-    spi_interface::Spi_,
+    spi_interface::{Spi_, RADIO_BUF_SIZE},
 };
 
 /// The timing factor used to convert between 24-bit integer timing conversions used

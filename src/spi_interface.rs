@@ -14,6 +14,12 @@ use crate::{
     shared::{OpCode, RadioError, MAX_ITERS},
 };
 
+pub type Spi_ = Spi<SPI1>;
+
+// Note: There's some ambiguity over whether this is 255, or 256, but it needs to fix as a u8 in
+// the max payload len param.
+pub const RADIO_BUF_SIZE: usize = 255;
+
 const AHB_FREQ: u32 = 170_000_000; // todo: temp hard-coded
 const DMA_PERIPH: DmaPeriph = DmaPeriph::Dma1; // todo: temp hard-coded
 
@@ -227,7 +233,7 @@ impl Interface {
     /// Mutable for use with encryption.
     /// TODO: move to radio mod.
     // fn rx_payload_from_buf(&mut self) -> &'static mut [u8] {
-    fn rx_payload_from_buf(&mut self) -> &mut [u8] {
+    pub fn rx_payload_from_buf(&mut self) -> &mut [u8] {
         // fn rx_payload_from_buf() -> &'static [u8] {
         // Note: This is the payload length as reported by the radio.
         let payload_len = self.rx_payload_len as usize;
@@ -252,9 +258,3 @@ impl Interface {
     //     Ok(())
     // }
 }
-
-pub type Spi_ = Spi<SPI1>;
-
-// Note: There's some ambiguity over whether this is 255, or 256, but it needs to fix as a u8 in
-// the max payload len param.
-pub const RADIO_BUF_SIZE: usize = 255;
