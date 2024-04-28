@@ -1,7 +1,7 @@
 #![no_std]
 
 mod params;
-pub mod sx128x;
-pub mod sx126x;
+mod shared;
 mod spi_interface;
-
+pub mod sx126x;
+pub mod sx128x;

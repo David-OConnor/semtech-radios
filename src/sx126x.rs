@@ -1,13 +1,13 @@
 //! Code to use the SX1262 LoRa radio.
 
 use defmt::println;
+use hal::dma::DmaChannel;
 use hal::{gpio::Pin, pac::SPI1, spi::Spi};
-use params::ModulationParamsLora;
-use spi_interface::Interface;
 
-use crate::{
-    sx1262::params::{LoraBandwidth, PacketParamsLora},
-    OutputPower,
+use super::{
+    params::ModulationParamsLora,
+    params::{LoraBandwidth, PacketParamsLora},
+    spi_interface::Interface,
 };
 
 pub type Spi_ = Spi<SPI1>;
@@ -22,10 +22,6 @@ const F_XTAL: u64 = 32_000_000; // Oscillator frequency in Mhz.
 
 // Note: There's some ambiguity over whether this is 255, or 256.
 pub const RADIO_BUF_SIZE: u8 = 255; // The radio's maximum data buffer size.
-
-// todo: Up to 255, A/R.
-pub static mut WRITE_BUF: [u8; 256] = [0; 256];
-pub static mut READ_BUF: [u8; 256] = [0; 256];
 
 /// DS, 13.4.2. Table 13-38.  The switch from one frame to another must be done in STDBY_RC mode.
 #[repr(u8)]
@@ -81,6 +77,40 @@ pub enum Irq {
     CadDetected = 8,
     Timeout = 9,
     LrFhssHop = 14,
+}
+
+/// These don't take into account the external PA, if applicable.
+#[repr(u8)] // For storing in configs.
+#[derive(Clone, Copy)]
+pub enum OutputPower {
+    /// 25mW
+    Db14,
+    /// 50mW
+    Db17,
+    /// 100mW
+    Db20,
+    /// 158mW
+    Db22,
+}
+
+impl Default for OutputPower {
+    fn default() -> Self {
+        Self::Db22 // full power
+    }
+}
+
+impl OutputPower {
+    /// See datasheet, table 13-21
+    /// For HP Max: 0 - 7. Do not set above 7, or you could cause early aging of the device. 7 sets max power,
+    ///  achieve +22dBm.
+    pub fn dutycycle_hpmax(&self) -> (u8, u8) {
+        match self {
+            Self::Db14 => (0x02, 0x02),
+            Self::Db17 => (0x02, 0x03),
+            Self::Db20 => (0x03, 0x05),
+            Self::Db22 => (0x04, 0x07),
+        }
+    }
 }
 
 /// DS, 13.1.15. This defines the mode the radio goes into after a successful Tx or Rx.
@@ -255,12 +285,6 @@ pub enum RadioError {
     UnexpectedStatus(u8),
 }
 
-/// Split a u16 address into two bytes.
-pub fn split_addr(addr: u16) -> (u8, u8) {
-    let result = addr.to_be_bytes();
-    (result[0], result[1])
-}
-
 #[derive(Clone, Copy)]
 #[allow(dead_code)]
 #[repr(u16)]
@@ -373,7 +397,6 @@ pub enum OpCode {
 pub struct Radio {
     pub interface: Interface,
     pub config: RadioConfig,
-    // operating_mode: OperatingMode,
 }
 
 impl Radio {
@@ -389,6 +412,8 @@ impl Radio {
         reset: Pin,
         busy: Pin,
         cs: Pin,
+        tx_ch: DmaChannel,
+        rx_ch: DmaChannel,
     ) -> Result<Self, RadioError> {
         let mut result = Self {
             config,
@@ -397,6 +422,10 @@ impl Radio {
                 reset,
                 busy,
                 cs,
+                tx_ch,
+                rx_ch,
+                read_buf: [0; 256],
+                write_buf: [0; 256],
             },
             // operating_mode: OperatingMode::StbyOsc,
         };
@@ -735,7 +764,7 @@ impl Radio {
         // 12. Set the circuit in transmitter mode to start transmission with the command SetTx(). Use the parameter to enable
         // Timeout
         self.start_transmission()?; // todo: Handle in ISR once using DMA.
-        // (Handled in SPI Tx complete ISR)
+                                    // (Handled in SPI Tx complete ISR)
 
         // 13. Wait for the IRQ TxDone or Timeout: once the packet has been sent the chip goes automatically to STDBY_RC mode
         // (Handled by waiting for a firmware GPIO ISR)
@@ -833,7 +862,7 @@ impl Radio {
         let (op_mode, cmd_status) = self.get_status()?;
         if op_mode != OperatingModeRead::StbyRc
             || (cmd_status != CommandStatus::DataAvailable
-            && cmd_status != CommandStatus::CommandTimeout)
+                && cmd_status != CommandStatus::CommandTimeout)
         {
             println!(
                 "\nProblem with Rx status post-read. Operating mode: {} Command status: {}",
@@ -887,19 +916,20 @@ impl Radio {
             //     .read_with_payload(buf_status.payload_len, 0)?;
 
             // todo TS. It seems DMA may be at the core of your demons.
-            let mut test_buf = unsafe { &mut READ_BUF };
-
-            test_buf[0] = OpCode::ReadBuffer as u8;
-            test_buf[1] = buf_status.rx_start_buf_pointer;
-            test_buf[2] = 0;
-
-            if self
-                .interface
-                .read(&mut test_buf[..3 + buf_status.payload_len as usize])
-                .is_err()
-            {
-                println!("Error reading the buffer");
-            }
+            // let mut test_buf = unsafe { &mut READ_BUF };
+            // let mut test_buf = &mut self.interface.read_buf;
+            //
+            // test_buf[0] = OpCode::ReadBuffer as u8;
+            // test_buf[1] = buf_status.rx_start_buf_pointer;
+            // test_buf[2] = 0;
+            //
+            // if self
+            //     .interface
+            //     .read(&mut test_buf[..3 + buf_status.payload_len as usize])
+            //     .is_err()
+            // {
+            //     println!("Error reading the buffer");
+            // }
         }
 
         // (Process the payload in the SPI Rx complete ISR)
