@@ -142,15 +142,14 @@ pub enum LoraLdrOptimization {
 
 /// (126x) See DS, section 6.1.1: Modulation Parameter.
 #[derive(Clone)]
-pub struct ModulationParamsLora {
+pub struct ModulationParamsLoraSx126x {
     pub mod_bandwidth: LoraBandwidthSX126x,
     pub spreading_factor: LoraSpreadingFactor,
     pub coding_rate: LoraCodingRate,
-    // todo: LDRO is sx126x only.
     pub low_data_rate_optimization: LoraLdrOptimization,
 }
 
-impl Default for ModulationParamsLora {
+impl Default for ModulationParamsLoraSx126x {
     /// We set this up for a short airtime; modify these as default to make the transmission more robust to interference,
     /// and potentially increase range.
     /// https://www.semtech.com/design-support/lora-calculator
@@ -164,6 +163,24 @@ impl Default for ModulationParamsLora {
             /// coding rate may be used."
             coding_rate: LoraCodingRate::CR_4_5,
             low_data_rate_optimization: LoraLdrOptimization::Disabled,
+        }
+    }
+}
+
+/// (126x) See DS, section 6.1.1: Modulation Parameter.
+#[derive(Clone)]
+pub struct ModulationParamsLoraSx128x {
+    pub mod_bandwidth: LoraBandwidthSX128x,
+    pub spreading_factor: LoraSpreadingFactor,
+    pub coding_rate: LoraCodingRate,
+}
+
+impl Default for ModulationParamsLoraSx128x {
+    fn default() -> Self {
+        Self {
+            mod_bandwidth: LoraBandwidthSX128x::BW_200,
+            spreading_factor: LoraSpreadingFactor::SF5,
+            coding_rate: LoraCodingRate::CR_4_5, // todo: LI coding rates?
         }
     }
 }
@@ -270,8 +287,8 @@ impl Default for PacketParamsLora {
             preamble_len: 12,
             header_type: LoraHeaderType::VariableLength,
             payload_len: 0, // This is set during transmission.
-            crc_enabled: true,
-            invert_iq: false,
+            crc_enabled: CrcEnabled::Enabled,
+            invert_iq: InvertIq::Standard,
         }
     }
 }

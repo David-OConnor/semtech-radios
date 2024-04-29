@@ -4,13 +4,14 @@ use defmt::println;
 use hal::{dma::DmaChannel, gpio::Pin};
 
 use super::{
-    params::{LoraBandwidthSX126x, ModulationParamsLora, PacketParamsLora},
+    params::{LoraBandwidthSX126x, ModulationParamsLoraSx126x, PacketParamsLora},
     spi_interface::Interface,
 };
 use crate::{
     shared::{OpCode, RadioError, RadioPins, Register126x},
     spi_interface::{Spi_, RADIO_BUF_SIZE},
 };
+use crate::params::ModulationParamsLoraSx128x;
 
 /// The timing factor used to convert between 24-bit integer timing conversions used
 /// by the radio, and ms. Eg: Sleep Duration = sleepPeriod * 15.625 µs
@@ -230,8 +231,9 @@ pub struct RadioConfig {
     pub rf_freq: u32,
     pub use_dio2_as_rfswitch: bool,
     pub dc_dc_enabled: bool,
-    // todo: Separate modulation params struct A/R
-    pub modulation_params: ModulationParamsLora,
+    pub modulation_params: ModulationParamsLoraSx126x,
+    // todo: Sort this out.
+    pub modulation_params_sx128x: ModulationParamsLoraSx128x,
     pub packet_params: PacketParamsLora,
     // todo: FSK A/R.
     // todo: FHSS? May be appropriate for your use case. See DS, section 6.3.
@@ -323,7 +325,7 @@ impl Radio {
 
         // "In a second step, the user should define the modulation
         // parameter according to the chosen protocol with the command SetModulationParams(...)."
-        result.set_mod_params()?;
+        result.set_mod_params_sx126x()?;
 
         // Finally, the user should then
         // select the packet format with the command SetPacketParams(...).
@@ -395,6 +397,7 @@ impl Radio {
     }
 
     /// DS, section 16.1.2. Adapted from pseudocode there.
+    /// todo: Sx126x only UFN.
     fn mod_quality_workaround(&mut self) -> Result<(), RadioError> {
         let mut value = self.interface.read_reg_word(Register126x::TxModulation)?;
         if self.config.packet_type == PacketType::Lora
@@ -424,7 +427,7 @@ impl Radio {
 
     /// Send modulation parameters found in the config, to the radio.
     /// DS, section 13.4.5. Parameters depend on the packet tyhpe.
-    pub fn set_mod_params(&mut self) -> Result<(), RadioError> {
+    pub fn set_mod_params_sx126x(&mut self) -> Result<(), RadioError> {
         let mut p1 = 0;
         let mut p2 = 0;
         let mut p3 = 0;
@@ -461,6 +464,37 @@ impl Radio {
             p6,
             p7,
             p8,
+        ])
+    }
+
+    /// Send modulation parameters found in the config, to the radio.
+    /// DS: Section 11.7.7
+    pub fn set_mod_params_sx128x(&mut self) -> Result<(), RadioError> {
+        let mut p1 = 0;
+        let mut p2 = 0;
+        let mut p3 = 0;
+
+        match self.config.packet_type {
+            PacketType::Gfsk => {
+                unimplemented!()
+            }
+            PacketType::Lora => {
+                p1 = self.config.modulation_params_sx128x.spreading_factor as u8;
+                p2 = self.config.modulation_params_sx128x.mod_bandwidth as u8;
+                p3 = self.config.modulation_params_sx128x.coding_rate as u8;
+            }
+            PacketType::Fhss => {
+                unimplemented!()
+            }
+        }
+
+        // todo: Confirm we can ignore unused params.
+
+        self.interface.write(&[
+            OpCode::SetModulationParams.val_sx128x(),
+            p1,
+            p2,
+            p3,
         ])
     }
 
@@ -733,7 +767,7 @@ impl Radio {
 
         // 5. Define the modulation parameter according to the chosen protocol with the command SetModulationParams(...)1
         // (Set on init)
-        self.set_mod_params()?;
+        self.set_mod_params_sx126x()?;
 
         // 6. Define the frame format to be used with the command SetPacketParams(...)
         // We must set this, as it may have been changed during a transmission to payload length.
