@@ -27,7 +27,7 @@ pub enum GfskBandwidth {
 }
 
 /// (SX126x) DS, Table 13-47. Mod param 1.
-/// (SX128x) DS, Table 14-47.
+/// (SX128x) DS, Table 14-47. Mod param 1.
 /// "A higher spreading factor provides better receiver sensitivity at the expense of longer
 /// transmission times (time-on-air)."
 #[repr(u8)]
@@ -93,7 +93,7 @@ pub enum LoraBandwidthSX126x {
 #[repr(u8)]
 #[derive(Clone, Copy, PartialEq)]
 #[allow(non_camel_case_types, dead_code)]
-/// Table 14-48
+/// Table 14-48. Mod param 2.
 pub enum LoraBandwidthSX128x {
     BW_1600 = 0x0a,
     BW_800 = 0x18,
@@ -102,7 +102,7 @@ pub enum LoraBandwidthSX128x {
 }
 
 /// SX126x: DS, Table 13-49. Mod param 3.
-/// SX128x: DS, Table 14-49.
+/// SX128x: DS, Table 14-49. Mod param 3.
 /// "A higher coding rate provides better noise immunity at the expense of longer transmission time. In normal conditions a
 /// factor of 4/5 provides the best trade-off; in the presence of strong interfererence a higher coding rate may be used. Error
 /// correction code does not have to be known in advance by the receiver since it is encoded in the header part of the packet."
@@ -140,12 +140,13 @@ pub enum LoraLdrOptimization {
     Enabled = 1,
 }
 
-/// See DS, section 6.1.1: Modulation Parameter.
+/// (126x) See DS, section 6.1.1: Modulation Parameter.
 #[derive(Clone)]
 pub struct ModulationParamsLora {
     pub mod_bandwidth: LoraBandwidthSX126x,
     pub spreading_factor: LoraSpreadingFactor,
     pub coding_rate: LoraCodingRate,
+    // todo: LDRO is sx126x only.
     pub low_data_rate_optimization: LoraLdrOptimization,
 }
 
@@ -168,21 +169,81 @@ impl Default for ModulationParamsLora {
 }
 
 /// SX126x DS, Table 13-67. Packet param 3.
-/// SX128x DS, Table 14-51.
+/// SX128x DS, Table 14-51. Packet param 2.
 /// Also, Section 6.1.3. "The LoRa® modem employs two types of packet formats: explicit and implicit. The explicit
 /// packet includes a short header
 /// that contains information about the number of bytes, coding rate and whether a CRC is used in the packet."
-#[repr(u8)]
 #[derive(Clone, Copy)]
 pub enum LoraHeaderType {
     /// Explict header
-    VariableLength = 0x00,
+    VariableLength,
     /// Implicit header
-    FixedLengthSx126x = 0x01,
-    FixedLengthSx128x = 0x80,
+    FixedLength,
 }
 
-/// See DS, section 13.4.6.2.
+impl LoraHeaderType {
+    pub fn val_sx126x(&self) -> u8 {
+        match self {
+            Self::VariableLength => 0x00,
+            Self::FixedLength => 0x01,
+        }
+    }
+    pub fn val_sx128x(&self) -> u8 {
+        match self {
+            Self::VariableLength => 0x00,
+            Self::FixedLength => 0x80,
+        }
+    }
+}
+
+#[repr(u8)]
+#[derive(Clone, Copy)]
+pub enum CrcEnabled {
+    Disabled,
+    Enabled,
+}
+
+impl CrcEnabled {
+    pub fn val_sx126x(&self) -> u8 {
+        match self {
+            Self::Disabled => 0,
+            Self::Enabled => 1,
+        }
+    }
+
+    pub fn val_sx128x(&self) -> u8 {
+        match self {
+            Self::Disabled => 0,
+            Self::Enabled => 0x20,
+        }
+    }
+}
+
+#[repr(u8)]
+#[derive(Clone, Copy)]
+pub enum InvertIq {
+    Standard,
+    Inverted,
+}
+
+impl InvertIq {
+    pub fn val_sx126x(&self) -> u8 {
+        match self {
+            Self::Standard => 0,
+            Self::Inverted => 1,
+        }
+    }
+
+    pub fn val_sx128x(&self) -> u8 {
+        match self {
+            Self::Standard => 0x40,
+            Self::Inverted => 0,
+        }
+    }
+}
+
+/// (sx126x)See DS, section 13.4.6.2.
+/// (sx128x)See DS, see starting at table 14-51.
 #[derive(Clone)]
 pub struct PacketParamsLora {
     /// The LoRa® packet starts with a preamble sequence which is used to synchronize the receiver with the incoming signal. By
@@ -190,13 +251,17 @@ pub struct PacketParamsLora {
     /// may be extended; for example, in the interest of reducing the receiver duty cycle in receive intensive applications. The
     /// transmitted preamble length may vary from 10 to 65535 symbols, once the fixed overhead of the preamble data is
     /// considered. This permits the transmission of near arbitrarily long preamble sequences.
+    ///
+    /// sx1262: Premable len is packet params 1 and 2. Sx1282: param 1, using base + exp setup.
     pub preamble_len: u16,
     pub header_type: LoraHeaderType,
     /// Size of the payload (in bytes) to transmit or maximum size of the
     /// payload that the receiver can accept.
+    /// Sx1280: Packet param 3.
     pub payload_len: u8,
-    pub crc_enabled: bool,
-    pub invert_iq: bool,
+    pub crc_enabled: CrcEnabled,
+    /// Sx1280. Packet param 5.
+    pub invert_iq: InvertIq,
 }
 
 impl Default for PacketParamsLora {

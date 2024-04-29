@@ -4,7 +4,6 @@ use defmt::println;
 use hal::{
     delay_us,
     dma::{ChannelCfg, DmaChannel, DmaPeriph},
-    gpio::Pin,
     pac::SPI1,
     spi::Spi,
 };

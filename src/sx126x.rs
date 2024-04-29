@@ -327,7 +327,7 @@ impl Radio {
 
         // Finally, the user should then
         // select the packet format with the command SetPacketParams(...).
-        result.set_packet_params()?;
+        result.set_packet_params_sx126x()?;
 
         result.set_rxgain_retention()?;
         result.tx_clamp_workaround()?;
@@ -466,7 +466,7 @@ impl Radio {
 
     /// Send packet parameters found in the config, to the radio.
     /// DS, section 13.4.6.
-    fn set_packet_params(&mut self) -> Result<(), RadioError> {
+    fn set_packet_params_sx126x(&mut self) -> Result<(), RadioError> {
         // The preamble is between 10 and 65,535 symbols.
         if self.config.packet_params.preamble_len < 10 {
             return Err(RadioError::Config);
@@ -491,11 +491,10 @@ impl Radio {
 
                 p1 = preamble_len[0];
                 p2 = preamble_len[1];
-                p3 = self.config.packet_params.header_type as u8;
+                p3 = self.config.packet_params.header_git addtype.val_sx126x();
                 p4 = self.config.packet_params.payload_len;
-                // todo: This works for crc_en on sx126x, but enabled is 0x20 on Sx128x
-                p5 = self.config.packet_params.crc_enabled as u8;
-                p6 = self.config.packet_params.invert_iq as u8;
+                p5 = self.config.packet_params.crc_enabled.val_sx126x();
+                p6 = self.config.packet_params.invert_iq.val_sx126x();
             }
             PacketType::Fhss => {
                 unimplemented!()
@@ -515,6 +514,63 @@ impl Radio {
             p7,
             p8,
             p9,
+        ])
+    }
+
+    /// Send packet parameters found in the config, to the radio.
+    /// DS, section 11.7.8
+    fn set_packet_params_sx128x(&mut self) -> Result<(), RadioError> {
+        // Check preamble. len. Recommended: 12.
+        // if self.config.packet_params.preamble_len < 10 {
+        //     return Err(RadioError::Config);
+        // }
+
+        let mut p1 = 0;
+        let mut p2 = 0;
+        let mut p3 = 0;
+        let mut p4 = 0;
+        let mut p5 = 0;
+        let mut p6 = 0;
+        let p7 = 0;
+        let p8 = 0;
+        let p9 = 0;
+
+        match self.config.packet_type {
+            PacketType::Gfsk => {
+                unimplemented!()
+            }
+            PacketType::Lora => {
+                // Note: The preamble here is handled differently from SX126x, to fit in a single param.
+                // preamble length = LORA_PBLE_LEN_MANT*2^(LORA_PBLE_LEN_EXP)
+                let pble_len_maint = (self.config.packet_params.preamble_len & 0xf) as u8;
+                // Hard-set this at 0 for now; use `maint` raw. Limited to up to 16 until this is changed.
+                let pble_len_exp: u8 = 0;
+
+                // todo: QC order.
+                let preamble_len = ((pble_len_exp & 0xf) << 4) | (pble_len_maint & 0xf);
+
+                p1 = preamble_len;
+                p2 = self.config.packet_params.header_type.val_sx128x();
+                p3 = self.config.packet_params.payload_len;
+                p4 = self.config.packet_params.crc_enabled.val_sx128x();
+                p5 = self.config.packet_params.invert_iq.val_sx128x();
+            }
+            PacketType::Fhss => {
+                unimplemented!()
+            }
+        }
+
+        // todo: Confirm we can ignore unused params.
+
+        self.interface.write(&[
+            OpCode::SetPacketParams.val_sx128x(),
+            p1,
+            p2,
+            p3,
+            p4,
+            p5,
+            p6,
+            p7,
         ])
     }
 
@@ -620,7 +676,7 @@ impl Radio {
 
         // 9. Define the frame format to be used with the command SetPacketParams(...)
         self.config.packet_params.payload_len = payload_len as u8;
-        self.set_packet_params()?;
+        self.set_packet_params_sx126x()?;
 
         // 10. Configure DIO and IRQ: use the command SetDioIrqParams(...) to select TxDone IRQ and map this IRQ to a DIO (DIO1,
         // DIO2 or DIO3)
@@ -682,7 +738,7 @@ impl Radio {
         // 6. Define the frame format to be used with the command SetPacketParams(...)
         // We must set this, as it may have been changed during a transmission to payload length.
         self.config.packet_params.payload_len = max_payload_len;
-        self.set_packet_params()?;
+        self.set_packet_params_sx126x()?;
 
         // 7. Configure DIO and irq: use the command SetDioIrqParams(...) to select the IRQ RxDone and map this IRQ to a DIO (DIO1
         // or DIO2 or DIO3), set IRQ Timeout as well.

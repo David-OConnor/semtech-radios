@@ -85,12 +85,12 @@ pub enum OpCode {
     SetStopRxTimerOnPreamble = 0x9F,
     SetLoRaSymbTimeout = 0xA0,
     // below: sx128x only. Ommitted for now due to conflicts.
-    // SetSaveContext = 0xd5,
+    SetSaveContext = 0xd5,
     // SetAutoTx = 0x98,
-    // SetLongPreamble = 0x9b,
+    SetLongPreamble = 0x9b,
     // SetUartSpeed = 0x9d,
-    // SetRangingRole = 0xa3,
-    // SetAdvancedRnaging = 0x91,
+    SetRangingRole = 0xa3,
+    SetAdvancedRnaging = 0x91,
 }
 
 impl OpCode {
