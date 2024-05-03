@@ -142,14 +142,14 @@ pub enum LoraLdrOptimization {
 
 /// (126x) See DS, section 6.1.1: Modulation Parameter.
 #[derive(Clone)]
-pub struct ModulationParamsLoraSx126x {
+pub struct ModulationParamsLora6x {
     pub mod_bandwidth: LoraBandwidthSX126x,
     pub spreading_factor: LoraSpreadingFactor,
     pub coding_rate: LoraCodingRate,
     pub low_data_rate_optimization: LoraLdrOptimization,
 }
 
-impl Default for ModulationParamsLoraSx126x {
+impl Default for ModulationParamsLora6x {
     /// We set this up for a short airtime; modify these as default to make the transmission more robust to interference,
     /// and potentially increase range.
     /// https://www.semtech.com/design-support/lora-calculator
@@ -169,13 +169,13 @@ impl Default for ModulationParamsLoraSx126x {
 
 /// (126x) See DS, section 6.1.1: Modulation Parameter.
 #[derive(Clone)]
-pub struct ModulationParamsLoraSx128x {
+pub struct ModulationParamsLora8x {
     pub mod_bandwidth: LoraBandwidthSX128x,
     pub spreading_factor: LoraSpreadingFactor,
     pub coding_rate: LoraCodingRate,
 }
 
-impl Default for ModulationParamsLoraSx128x {
+impl Default for ModulationParamsLora8x {
     fn default() -> Self {
         Self {
             mod_bandwidth: LoraBandwidthSX128x::BW_200,

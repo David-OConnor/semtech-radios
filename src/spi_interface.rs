@@ -22,7 +22,7 @@ pub const RADIO_BUF_SIZE: usize = 255;
 const AHB_FREQ: u32 = 170_000_000; // todo: temp hard-coded
 const DMA_PERIPH: DmaPeriph = DmaPeriph::Dma1; // todo: temp hard-coded
 
-use crate::shared::{RadioPins, Register126x};
+use crate::shared::{RadioPins, Register6x};
 
 pub struct Interface {
     pub spi: Spi_,
@@ -90,7 +90,7 @@ impl Interface {
     }
 
     /// Write a single word to a register.
-    pub fn write_reg_word(&mut self, reg: Register126x, word: u8) -> Result<(), RadioError> {
+    pub fn write_reg_word(&mut self, reg: Register6x, word: u8) -> Result<(), RadioError> {
         let addr_split = shared::split_addr(reg as u16);
 
         self.wait_on_busy()?;
@@ -115,7 +115,7 @@ impl Interface {
     }
 
     /// Read a single word from a register.
-    pub fn read_reg_word(&mut self, reg: Register126x) -> Result<u8, RadioError> {
+    pub fn read_reg_word(&mut self, reg: Register6x) -> Result<u8, RadioError> {
         let addr_split = shared::split_addr(reg as u16);
 
         let mut read_buf = [0; 5];

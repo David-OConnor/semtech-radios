@@ -4,14 +4,14 @@ use defmt::println;
 use hal::{dma::DmaChannel, gpio::Pin};
 
 use super::{
-    params::{LoraBandwidthSX126x, ModulationParamsLoraSx126x, PacketParamsLora},
+    params::{LoraBandwidthSX126x, ModulationParamsLora6x, PacketParamsLora},
     spi_interface::Interface,
 };
 use crate::{
-    shared::{OpCode, RadioError, RadioPins, Register126x},
+    params::ModulationParamsLora8x,
+    shared::{OpCode, RadioError, RadioPins, Register6x},
     spi_interface::{Spi_, RADIO_BUF_SIZE},
 };
-use crate::params::ModulationParamsLoraSx128x;
 
 /// The timing factor used to convert between 24-bit integer timing conversions used
 /// by the radio, and ms. Eg: Sleep Duration = sleepPeriod * 15.625 µs
@@ -29,13 +29,13 @@ pub enum PacketType {
     Gfsk = 0,
     Lora = 1,
     /// Long Range FHSS
-    Fhss = 3,
+    LrFhss = 3,
 }
 
 #[repr(u16)]
 #[derive(Clone, Copy)]
 #[allow(dead_code)]
-/// DS, table 12-1. Differentiate the LoRa signal for Public or Private network.
+/// (SX126x only(?) DS, table 12-1. Differentiate the LoRa signal for Public or Private network.
 /// set the `LoRa Sync word MSB and LSB values to this.
 pub enum LoraNetwork {
     Public = 0x3444,  // corresponds to sx127x 0x34
@@ -47,7 +47,7 @@ pub enum LoraNetwork {
 #[repr(u8)]
 #[derive(Clone, Copy)]
 #[allow(dead_code)]
-pub enum RampTime {
+pub enum RampTime6x {
     R10 = 0,
     R20 = 1,
     R40 = 2,
@@ -58,11 +58,27 @@ pub enum RampTime {
     R3400 = 7,
 }
 
+/// DS, Table 11-49. Power ramp time. Titles correspond to ramp time in µs.
+/// todo: Figure out guidelines for setting this. The DS doesn't have much on it.
+#[repr(u8)]
+#[derive(Clone, Copy)]
+#[allow(dead_code)]
+pub enum RampTime8x {
+    R02 = 0x0,
+    R04 = 0x20,
+    R06 = 0x40,
+    R08 = 0x60,
+    R10 = 0x80,
+    R12 = 0xa0,
+    R16 = 0xc0,
+    R20 = 0xe0,
+}
+
 /// DS, Table 13-29. repr as u16, since we use the values to bit-mask a 16-bit integer.
 #[repr(u16)]
 #[derive(Clone, Copy)]
 #[allow(dead_code)]
-pub enum Irq {
+pub enum Irq6x {
     TxDone = 0,
     RxDone = 1,
     PremableDetected = 2,
@@ -76,10 +92,34 @@ pub enum Irq {
     LrFhssHop = 14,
 }
 
+/// DS, Table 11-73. repr as u16, since we use the values to bit-mask a 16-bit integer.
+#[repr(u16)]
+#[derive(Clone, Copy)]
+#[allow(dead_code)]
+pub enum Irq8x {
+    TxDone = 0,
+    RxDone = 1,
+    SyncWordValid = 2,
+    SyncWordError = 3,
+    HeaderValid = 4,
+    HeaderError = 5,
+    CrcError = 6,
+    RangingSlaveResponseDone = 7,
+    RangingSlaveRequestDiscard = 8,
+    RangingMasterResultValid = 9,
+    RangingMasterTimeut = 10,
+    RangingSlaveRequestValid = 11,
+    CadDone = 12,
+    CadDetected = 13,
+    RxTxTimeout = 14,
+    PreambleDetected = 15, // also advanced ranging done.
+}
+
+/// Table 13-21
 /// These don't take into account the external PA, if applicable.
 #[repr(u8)] // For storing in configs.
 #[derive(Clone, Copy)]
-pub enum OutputPower {
+pub enum OutputPower6x {
     /// 25mW
     Db14,
     /// 50mW
@@ -90,13 +130,13 @@ pub enum OutputPower {
     Db22,
 }
 
-impl Default for OutputPower {
+impl Default for OutputPower6x {
     fn default() -> Self {
         Self::Db22 // full power
     }
 }
 
-impl OutputPower {
+impl OutputPower6x {
     /// See datasheet, table 13-21
     /// For HP Max: 0 - 7. Do not set above 7, or you could cause early aging of the device. 7 sets max power,
     ///  achieve +22dBm.
@@ -110,7 +150,7 @@ impl OutputPower {
     }
 }
 
-/// DS, 13.1.15. This defines the mode the radio goes into after a successful Tx or Rx.
+/// 6x only. DS, 13.1.15. This defines the mode the radio goes into after a successful Tx or Rx.
 #[repr(u8)]
 #[derive(Clone, Copy)]
 pub enum FallbackMode {
@@ -119,7 +159,8 @@ pub enum FallbackMode {
     StdbyRc = 0x20,
 }
 
-/// DS, section 9.6: Receive (RX) Mode
+// todo: 6x only? Can't tell
+/// 6x: DS, section 9.6: Receive (RX) Mode
 #[derive(Clone, Copy)]
 #[allow(dead_code)]
 pub enum RxMode {
@@ -129,24 +170,33 @@ pub enum RxMode {
     Listen,
 }
 
-/// DS, section 13.1.1
+/// DS, section 13.1.1. Table 13-2. For bit 2.
 #[repr(u8)]
 #[derive(Clone, Copy)]
-pub enum SleepConfig {
+pub enum SleepConfig6x {
     ColdStart = 0,
     WarmStart = 1,
 }
 
-/// DS, section 9.
+/// DS, section 11.6.1. Table 11-17. For bit 0.
+#[repr(u8)]
+#[derive(Clone, Copy)]
+pub enum SleepConfig8x {
+    RamFlushed = 0,
+    RamRetained = 1,
+}
+
+/// 6x DS, section 9. (And table 13-76) 8x: Table 11-5. (Called Circuit mode)
 #[derive(Clone, Copy)]
 #[allow(dead_code)]
 pub enum OperatingMode {
     /// In this mode, most of the radio internal blocks are powered down or in low power mode and optionally the RC64k clock
     /// and the timer are running.
-    Sleep(SleepConfig),
+    Sleep6x(SleepConfig6x),
+    Sleep8x(SleepConfig8x), // todo: Sort how how you're going to handle this.
     /// In standby mode the host should configure the chip before going to RX or TX modes. By default in this state, the system is
     /// clocked by the 13 MHz RC oscillator to reduce power consumption (in all other modes except SLEEP the XTAL is turned ON).
-    /// However if the application is time critical, the XOSC block can be turned or left ON.
+    /// However, if the application is time-critical, the XOSC block can be turned or left ON.
     StbyRc,
     StbyOsc,
     /// In FS mode, PLL and related regulators are switched ON. The BUSY goes low as soon as the PLL is locked or timed out.
@@ -159,7 +209,7 @@ pub enum OperatingMode {
     Rx(f32),
 }
 
-/// DS, Table 13-76
+/// (6x): DS, Table 13-76. (6x): Table 11-5
 /// Without the inner values, eg from read status, and without sleep, which can't be read.
 #[repr(u8)]
 #[derive(Clone, Copy, PartialEq, defmt::Format, Debug)]
@@ -171,7 +221,7 @@ pub enum OperatingModeRead {
     Rx = 5,
 }
 
-/// DS, section 13.5.2
+/// (6x): DS, section 13.5.2. (8x): Table 11-61
 pub struct RxBufferStatus {
     pub status: u8,
     pub payload_len: u8,
@@ -183,7 +233,7 @@ pub struct RxBufferStatus {
 /// units at the consumer side.
 /// todo: FSK A/R; same field count, but with different meanings.
 #[derive(Default)]
-pub struct RxPacketStatusLora {
+pub struct RxPacketStatusLora6x {
     pub status: u8,
     /// Average over last packet received of RSSI
     /// Actual signal power is –RssiPkt/2 (dBm).
@@ -195,18 +245,21 @@ pub struct RxPacketStatusLora {
     pub signal_rssi: u8,
 }
 
-/// DS, section 13.5.4.
-pub struct RxStatistics {
+/// 6x only: DS, section 13.5.4. Table 13-82
+pub struct RxStatistics6x {
     pub status: u8,
     pub num_received: u16,
     pub num_crc_error: u16,
     pub num_length_error: u16,
 }
 
-/// DS, section 13.5.1
+/// (6x): DS, section 13.5.1. 8x: Table 11-5
 #[repr(u8)]
 #[derive(Clone, Copy, PartialEq, defmt::Format, Debug)]
 pub enum CommandStatus {
+    /// Transceiver has successfully processed the command.
+    /// 8x only.
+    CommandProcessSuccess8x,
     /// A packet has been successfully received and data can be retrieved
     DataAvailable = 2,
     /// A transaction from host took too long to complete and triggered an internal watchdog. The watchdog mechanism can be disabled by host; it
@@ -225,15 +278,13 @@ pub enum CommandStatus {
 /// See [this interactive tool for info on how these parameters effect OTA time etc](https://www.semtech.com/design-support/lora-calculator)
 /// It also includes consumption, RFIO schematics etc. Use `Shared RFIO`, vice a switch; breaks the calculator.
 #[derive(Clone)]
-pub struct RadioConfig {
+pub struct RadioConfig6x {
     pub packet_type: PacketType,
     /// RF frequency in Hz.
     pub rf_freq: u32,
     pub use_dio2_as_rfswitch: bool,
     pub dc_dc_enabled: bool,
-    pub modulation_params: ModulationParamsLoraSx126x,
-    // todo: Sort this out.
-    pub modulation_params_sx128x: ModulationParamsLoraSx128x,
+    pub modulation_params: ModulationParamsLora6x,
     pub packet_params: PacketParamsLora,
     // todo: FSK A/R.
     // todo: FHSS? May be appropriate for your use case. See DS, section 6.3.
@@ -241,12 +292,12 @@ pub struct RadioConfig {
     pub tx_timeout: f32,
     pub rx_timeout: f32,
     pub fallback_mode: FallbackMode,
-    pub ramp_time: RampTime,
+    pub ramp_time: RampTime6x,
     pub lora_network: LoraNetwork,
-    pub output_power: OutputPower,
+    pub output_power: OutputPower6x,
 }
 
-impl Default for RadioConfig {
+impl Default for RadioConfig6x {
     fn default() -> Self {
         Self {
             packet_type: PacketType::Lora,
@@ -258,15 +309,60 @@ impl Default for RadioConfig {
             tx_timeout: 0., // todo: Calculate this based on packet and mod params?
             rx_timeout: 0.,
             fallback_mode: FallbackMode::StdbyRc,
-            ramp_time: RampTime::R200, // todo: What should this be?
+            ramp_time: RampTime6x::R200, // todo: What should this be?
             lora_network: LoraNetwork::Private,
-            output_power: OutputPower::Db22,
+            output_power: OutputPower6x::Db22,
         }
     }
 }
 
+/// See [this interactive tool for info on how these parameters effect OTA time etc](https://www.semtech.com/design-support/lora-calculator)
+/// It also includes consumption, RFIO schematics etc. Use `Shared RFIO`, vice a switch; breaks the calculator.
+#[derive(Clone)]
+pub struct RadioConfig8x {
+    pub packet_type: PacketType,
+    // /// RF frequency in Hz.
+    // pub rf_freq: u32,
+    pub dc_dc_enabled: bool,
+    pub modulation_params: ModulationParamsLora8x,
+    pub packet_params: PacketParamsLora,
+    // todo: FSK A/R.
+    // todo: FHSS? May be appropriate for your use case. See DS, section 6.3.
+    /// Raw register value. Timeout duration = timeout * 15.625µs.
+    pub tx_timeout: f32,
+    pub rx_timeout: f32,
+    pub fallback_mode: FallbackMode,
+    pub ramp_time: RampTime8x,
+    // pub lora_network: LoraNetwork,
+}
+
+impl Default for RadioConfig8x {
+    fn default() -> Self {
+        Self {
+            packet_type: PacketType::Lora,
+            // rf_freq: 915_000_000,
+            dc_dc_enabled: true,
+            modulation_params: Default::default(),
+            packet_params: Default::default(),
+            tx_timeout: 0., // todo: Calculate this based on packet and mod params?
+            rx_timeout: 0.,
+            fallback_mode: FallbackMode::StdbyRc,
+            ramp_time: RampTime8x::R10, // todo: What should this be?
+                                        // lora_network: LoraNetwork::Private,
+        }
+    }
+}
+
+pub enum RadioConfig {
+    R6x(RadioConfig6x),
+    R8x(RadioConfig8x),
+}
+
 pub struct Radio {
     pub interface: Interface,
+    // todo: Wrapped enum?
+    // pub config: RadioConfig6x,
+    // pub config_8x: RadioConfig8x, // todo
     pub config: RadioConfig,
 }
 
@@ -278,6 +374,8 @@ impl Radio {
     /// ... (See inline comments prior to the mandatory order of the first 3 steps)
     /// If this order is not respected, the behavior of the device could be unexpected.
     pub fn new(
+        // config: RadioConfig6x,
+        // config_8x: RadioConfig8x,
         config: RadioConfig,
         spi: Spi_,
         pins: RadioPins,
@@ -286,6 +384,7 @@ impl Radio {
     ) -> Result<Self, RadioError> {
         let mut result = Self {
             config,
+            // config_8x,
             interface: Interface {
                 spi,
                 pins,
@@ -382,24 +481,24 @@ impl Radio {
     /// See DS, section 9.6: Receive (RX) Mode).
     fn set_rxgain_retention(&mut self) -> Result<(), RadioError> {
         self.interface
-            .write_reg_word(Register126x::RxGainRetention0, 0x01)?;
+            .write_reg_word(Register6x::RxGainRetention0, 0x01)?;
         self.interface
-            .write_reg_word(Register126x::RxGainRetention1, 0x08)?;
+            .write_reg_word(Register6x::RxGainRetention1, 0x08)?;
         self.interface
-            .write_reg_word(Register126x::RxGainRetention2, 0xac)
+            .write_reg_word(Register6x::RxGainRetention2, 0xac)
     }
 
     /// See DS, section 15.2.2.
     fn tx_clamp_workaround(&mut self) -> Result<(), RadioError> {
-        let val = self.interface.read_reg_word(Register126x::TxClampConfig)?;
+        let val = self.interface.read_reg_word(Register6x::TxClampConfig)?;
         self.interface
-            .write_reg_word(Register126x::TxClampConfig, val | 0x1e)
+            .write_reg_word(Register6x::TxClampConfig, val | 0x1e)
     }
 
     /// DS, section 16.1.2. Adapted from pseudocode there.
     /// todo: Sx126x only UFN.
     fn mod_quality_workaround(&mut self) -> Result<(), RadioError> {
-        let mut value = self.interface.read_reg_word(Register126x::TxModulation)?;
+        let mut value = self.interface.read_reg_word(Register6x::TxModulation)?;
         if self.config.packet_type == PacketType::Lora
             && self.config.modulation_params.mod_bandwidth == LoraBandwidthSX126x::BW_500
         {
@@ -410,7 +509,7 @@ impl Radio {
 
         // todo: QC how this works with u8 vs u16.
         self.interface
-            .write_reg_word(Register126x::TxModulation, value)
+            .write_reg_word(Register6x::TxModulation, value)
     }
 
     /// See DS, section 15.3.2
@@ -419,10 +518,10 @@ impl Radio {
     pub fn implicit_header_to_workaround(&mut self) -> Result<(), RadioError> {
         // todo DS typo: Shows 0920 which is a diff one in code snipped.
         self.interface
-            .write_reg_word(Register126x::RtcControl, 0x00)?;
-        let val = self.interface.read_reg_word(Register126x::EventMask)?;
+            .write_reg_word(Register6x::RtcControl, 0x00)?;
+        let val = self.interface.read_reg_word(Register6x::EventMask)?;
         self.interface
-            .write_reg_word(Register126x::EventMask, val | 0x02)
+            .write_reg_word(Register6x::EventMask, val | 0x02)
     }
 
     /// Send modulation parameters found in the config, to the radio.
@@ -447,7 +546,7 @@ impl Radio {
                 p3 = self.config.modulation_params.coding_rate as u8;
                 p4 = self.config.modulation_params.low_data_rate_optimization as u8;
             }
-            PacketType::Fhss => {
+            PacketType::LrFhss => {
                 unimplemented!()
             }
         }
@@ -483,19 +582,15 @@ impl Radio {
                 p2 = self.config.modulation_params_sx128x.mod_bandwidth as u8;
                 p3 = self.config.modulation_params_sx128x.coding_rate as u8;
             }
-            PacketType::Fhss => {
+            PacketType::LrFhss => {
                 unimplemented!()
             }
         }
 
         // todo: Confirm we can ignore unused params.
 
-        self.interface.write(&[
-            OpCode::SetModulationParams.val_sx128x(),
-            p1,
-            p2,
-            p3,
-        ])
+        self.interface
+            .write(&[OpCode::SetModulationParams.val_8x(), p1, p2, p3])
     }
 
     /// Send packet parameters found in the config, to the radio.
@@ -525,12 +620,12 @@ impl Radio {
 
                 p1 = preamble_len[0];
                 p2 = preamble_len[1];
-                p3 = self.config.packet_params.header_git addtype.val_sx126x();
+                p3 = self.config.packet_params.header_addtype.val_sx126x();
                 p4 = self.config.packet_params.payload_len;
                 p5 = self.config.packet_params.crc_enabled.val_sx126x();
                 p6 = self.config.packet_params.invert_iq.val_sx126x();
             }
-            PacketType::Fhss => {
+            PacketType::LrFhss => {
                 unimplemented!()
             }
         }
@@ -589,23 +684,15 @@ impl Radio {
                 p4 = self.config.packet_params.crc_enabled.val_sx128x();
                 p5 = self.config.packet_params.invert_iq.val_sx128x();
             }
-            PacketType::Fhss => {
+            PacketType::LrFhss => {
                 unimplemented!()
             }
         }
 
         // todo: Confirm we can ignore unused params.
 
-        self.interface.write(&[
-            OpCode::SetPacketParams.val_sx128x(),
-            p1,
-            p2,
-            p3,
-            p4,
-            p5,
-            p6,
-            p7,
-        ])
+        self.interface
+            .write(&[OpCode::SetPacketParams.val_8x(), p1, p2, p3, p4, p5, p6, p7])
     }
 
     /// See DS, section 13.1.14. These settings should be hard-set to specific values.
@@ -633,9 +720,12 @@ impl Radio {
     /// Sets the device into sleep mode; the lowest current consumption possible. Wake up by setting CS low.
     pub fn set_op_mode(&mut self, mode: OperatingMode) -> Result<(), RadioError> {
         match mode {
-            OperatingMode::Sleep(cfg) => self
+            // todo: This behavior is 6x only. 8x is different!
+            OperatingMode::Sleep6x(cfg) => self
                 .interface
+                // todo: Wake-up on RTC A/R.
                 .write_op_word(OpCode::SetSleep, (cfg as u8) << 2),
+
             OperatingMode::StbyRc => self.interface.write_op_word(OpCode::SetStandby, 0),
             OperatingMode::StbyOsc => self.interface.write_op_word(OpCode::SetStandby, 1),
             OperatingMode::Fs => self.interface.write(&[OpCode::SetFS as u8]),
@@ -738,7 +828,7 @@ impl Radio {
     /// Run these from the SPI Tx complete ISR. This initiates transmission; run this once the
     /// payload write to the radio's buffer is complete.
     pub fn start_transmission(&mut self) -> Result<(), RadioError> {
-        self.set_irq(&[Irq::TxDone, Irq::Timeout], &[])?; // DIO 1
+        self.set_irq(&[Irq6x::TxDone, Irq6x::Timeout], &[])?; // DIO 1
         self.set_op_mode(OperatingMode::Tx(self.config.rx_timeout))?;
 
         Ok(())
@@ -776,7 +866,7 @@ impl Radio {
 
         // 7. Configure DIO and irq: use the command SetDioIrqParams(...) to select the IRQ RxDone and map this IRQ to a DIO (DIO1
         // or DIO2 or DIO3), set IRQ Timeout as well.
-        self.set_irq(&[], &[Irq::RxDone, Irq::Timeout])?; // DIO3.
+        self.set_irq(&[], &[Irq6x::RxDone, Irq6x::Timeout])?; // DIO3.
 
         // 8. Define Sync Word value: use the command WriteReg(...) to write the value of the register via direct register access.
         // (Set on init)
@@ -794,7 +884,7 @@ impl Radio {
 
     /// Run these after transmission is complete, eg in an ISR. Clears the IRQ, and reports errors.
     pub fn cleanup_tx(&mut self) -> Result<(), RadioError> {
-        self.clear_irq(&[Irq::TxDone, Irq::Timeout])?;
+        self.clear_irq(&[Irq6x::TxDone, Irq6x::Timeout])?;
 
         let status = self.get_status()?;
         if status.0 != OperatingModeRead::StbyRc || status.1 != CommandStatus::CommandTxDone {
@@ -842,7 +932,7 @@ impl Radio {
             if irq_status & (0b11 << 5) != 0 {
                 // Mask for header CRC error or wrong CRC received.
                 println!("Irq CRC error post-read: {}", irq_status); // ensure bit 6 isn't set to validate CRC.
-                self.clear_irq(&[Irq::RxDone, Irq::Timeout])?; // Clear the IRQ even if we are returning early.
+                self.clear_irq(&[Irq6x::RxDone, Irq6x::Timeout])?; // Clear the IRQ even if we are returning early.
                 return Err(RadioError::Crc);
             }
         }
@@ -850,7 +940,7 @@ impl Radio {
         // 12. Clear IRQ flag RxDone or Timeout: use the command ClearIrqStatus(). In case of a valid packet (CRC OK), get the packet
         // length and address of the first byte of the received payload by using the command GetRxBufferStatus(...)
         // eg in firmware: radio.clear_irq(&[Irq::RxDone, Irq::Timeout])?;
-        self.clear_irq(&[Irq::RxDone, Irq::Timeout])?;
+        self.clear_irq(&[Irq6x::RxDone, Irq6x::Timeout])?;
 
         let buf_status = self.get_rx_buffer_status()?;
         println!(
@@ -911,13 +1001,13 @@ impl Radio {
     }
 
     /// DS, section 13.5.3. This contains useful link stats from a received message.
-    pub fn get_packet_status(&mut self) -> Result<RxPacketStatusLora, RadioError> {
+    pub fn get_packet_status(&mut self) -> Result<RxPacketStatusLora6x, RadioError> {
         let mut buf = [OpCode::GetPacketStatus as u8, 0, 0, 0, 0];
         self.interface.read(&mut buf)?;
 
         // Raw data, to make passing over the wire/air more compact. Convert using scaler/signed types
         // prior to display or use.
-        Ok(RxPacketStatusLora {
+        Ok(RxPacketStatusLora6x {
             // todo: Which RSSI should we use?
             status: buf[1],
             rssi: buf[2],
@@ -936,11 +1026,11 @@ impl Radio {
 
     /// DS, section 13.5.5
     /// todo: Impl reset as well.
-    pub fn get_statistics(&mut self) -> Result<RxStatistics, RadioError> {
+    pub fn get_statistics(&mut self) -> Result<RxStatistics6x, RadioError> {
         let mut buf = [OpCode::GetStats as u8, 0, 0, 0, 0, 0, 0, 0];
         self.interface.read(&mut buf)?;
 
-        Ok(RxStatistics {
+        Ok(RxStatistics6x {
             status: buf[1],
             num_received: u16::from_be_bytes([buf[2], buf[3]]),
             num_crc_error: u16::from_be_bytes([buf[4], buf[5]]),
@@ -950,7 +1040,7 @@ impl Radio {
 
     /// DS, section 13.3.1. Setup DIO1 and DIO3 IRQs, which can be used with the MCU's GPU interrupts.
     /// We assume DIO2 controls the Tx/Rx switch.
-    fn set_irq(&mut self, dio1: &[Irq], dio3: &[Irq]) -> Result<(), RadioError> {
+    fn set_irq(&mut self, dio1: &[Irq6x], dio3: &[Irq6x]) -> Result<(), RadioError> {
         let mut irq_word: u16 = 0;
         let mut dio1_word: u16 = 0;
         let mut dio3_word: u16 = 0;
@@ -987,15 +1077,15 @@ impl Radio {
         let sync_word_bytes = (network as u16).to_be_bytes();
 
         self.interface
-            .write_reg_word(Register126x::LoraSyncWordMsb, sync_word_bytes[0])?;
+            .write_reg_word(Register6x::LoraSyncWordMsb, sync_word_bytes[0])?;
         self.interface
-            .write_reg_word(Register126x::LoraSyncWordLsb, sync_word_bytes[1])?;
+            .write_reg_word(Register6x::LoraSyncWordLsb, sync_word_bytes[1])?;
 
         Ok(())
     }
 
     /// DS, section 13.3.4
-    pub fn clear_irq(&mut self, irqs: &[Irq]) -> Result<(), RadioError> {
+    pub fn clear_irq(&mut self, irqs: &[Irq6x]) -> Result<(), RadioError> {
         // We use a single 16-bit word, with bits at the various values.
         let mut irq_word: u16 = 0;
         for irq in irqs {

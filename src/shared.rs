@@ -97,7 +97,7 @@ impl OpCode {
     /// Register value for sx128x. 126x uses the u8 value for now, for backwards compat.
     /// The same spreading factors are available on both, but with reversed reg hex positions.
     /// todo: Commented-out lines are present on 126x, but absent on sx128x.
-    pub fn val_sx128x(&self) -> u8 {
+    pub fn val_8x(&self) -> u8 {
         match self {
             Self::WriteRegister => 0x18,
             Self::ReadRegister => 0x19,
@@ -132,7 +132,7 @@ impl OpCode {
 #[repr(u16)]
 /// Registers, to read and write following the appropriate OpCode.
 /// See DS, section 12.1: Register Table
-pub enum Register126x {
+pub enum Register6x {
     HoppingEnabled = 0x0385,
     PacketLength = 0x0386, // FSK
     NbHoppingBLocks = 0x0387,
@@ -192,7 +192,7 @@ pub enum Register126x {
 #[allow(dead_code)]
 #[repr(u16)]
 /// See DS, table 13-1: Register Table
-pub enum Register128x {
+pub enum Register8x {
     RxGain = 0x891,
     ManualGainSetting = 0x895,
     LnaGainValue = 0x89e,
