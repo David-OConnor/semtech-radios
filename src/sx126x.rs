@@ -17,8 +17,13 @@ use crate::{
 /// by the radio, and ms. Eg: Sleep Duration = sleepPeriod * 15.625 µs
 const TIMING_FACTOR_MS: f32 = 0.015_625;
 
-const F_XTAL: u64 = 32_000_000; // Oscillator frequency in Mhz.
-                                // The radio's maximum data buffer size.
+const F_XTAL_6X: u64 = 32_000_000; // Oscillator frequency in Mhz.
+const F_XTAL_8X: u64 = 52_000_000; // Oscillator frequency in Mhz.
+                                   // The radio's maximum data buffer size.
+
+// These constants are pre-computed
+const FREQ_CONST_6X: u64 = F_XTAL_6X / (1 << 25);
+const FREQ_CONST_8X: u64 = F_XTAL_8X / (1 << 18);
 
 /// DS, 13.4.2. Table 13-38.  The switch from one frame to another must be done in STDBY_RC mode.
 #[repr(u8)]
@@ -321,8 +326,8 @@ impl Default for RadioConfig6x {
 #[derive(Clone)]
 pub struct RadioConfig8x {
     pub packet_type: PacketType,
-    // /// RF frequency in Hz.
-    // pub rf_freq: u32,
+    // RF frequency in Hz.
+    pub rf_freq: u64,
     pub dc_dc_enabled: bool,
     pub modulation_params: ModulationParamsLora8x,
     pub packet_params: PacketParamsLora,
@@ -340,7 +345,7 @@ impl Default for RadioConfig8x {
     fn default() -> Self {
         Self {
             packet_type: PacketType::Lora,
-            // rf_freq: 915_000_000,
+            rf_freq: 4_200_000_000,
             dc_dc_enabled: true,
             modulation_params: Default::default(),
             packet_params: Default::default(),
@@ -428,31 +433,49 @@ impl Radio {
 
         // Finally, the user should then
         // select the packet format with the command SetPacketParams(...).
-        result.set_packet_params_sx126x()?;
+        result.set_packet_params()?;
 
         result.set_rxgain_retention()?;
         result.tx_clamp_workaround()?;
 
-        // Use the LDO, or DC-DC setup as required, based on hardware config.
-        result
-            .interface
-            .write_op_word(OpCode::SetRegulatorMode, result.config.dc_dc_enabled as u8)?;
+        match result.config {
+            RadioConfig::R6x(config) => {
+                // Use the LDO, or DC-DC setup as required, based on hardware config.
+                result
+                    .interface
+                    .write_op_word(OpCode::SetRegulatorMode, config.dc_dc_enabled as u8)?;
 
-        result.set_pa_config()?;
+                result.set_pa_config()?;
 
-        result
-            .interface
-            .write_op_word(OpCode::SetTxFallbackMode, result.config.fallback_mode as u8)?;
+                result
+                    .interface
+                    .write_op_word(OpCode::SetTxFallbackMode, config.fallback_mode as u8)?;
 
-        result.interface.write_op_word(
-            OpCode::SetDIO2AsRfSwitchCtrl,
-            result.config.use_dio2_as_rfswitch as u8,
-        )?;
+                result.interface.write_op_word(
+                    OpCode::SetDIO2AsRfSwitchCtrl,
+                    config.use_dio2_as_rfswitch as u8,
+                )?;
 
-        result.set_tx_params()?;
+                result.set_tx_params()?;
 
-        // Note: Not required if private due to the reset value.
-        result.set_sync_word(result.config.lora_network)?;
+                // Note: Not required if private due to the reset value.
+                result.set_sync_word(config.lora_network)?;
+            }
+            RadioConfig::R8x(config) => {
+                // Use the LDO, or DC-DC setup as required, based on hardware config.
+                result
+                    .interface
+                    .write_op_word(OpCode::SetRegulatorMode, config.dc_dc_enabled as u8)?;
+
+                result.set_pa_config()?;
+
+                result
+                    .interface
+                    .write_op_word(OpCode::SetTxFallbackMode, config.fallback_mode as u8)?;
+
+                result.set_tx_params()?;
+            }
+        }
 
         let tx_addr = 0;
         let rx_addr = 0;
@@ -463,70 +486,45 @@ impl Radio {
         Ok(result)
     }
 
-    /// See DS, section 13.4.1 for this computation.
+    /// 6x: See DS, section 13.4.1 for this computation.
+    /// 8xx: See DS, section 11.7.3.
     fn set_rf_freq(&mut self) -> Result<(), RadioError> {
-        // We convert to u64 to prevent an overflow.
-        let rf_freq_raw =
-            ((self.config.rf_freq as u64 * 2_u64.pow(25) / F_XTAL) as u32).to_be_bytes();
+        match self.config {
+            RadioConfig::R6x(config) => {
+                // We convert to u64 to prevent an overflow.
+                let rf_freq_raw = ((config.rf_freq as u64 / FREQ_CONST_6X) as u32).to_be_bytes();
 
-        self.interface.write(&[
-            OpCode::SetRfFrequency as u8,
-            rf_freq_raw[0],
-            rf_freq_raw[1],
-            rf_freq_raw[2],
-            rf_freq_raw[3],
-        ])
-    }
+                self.interface.write(&[
+                    OpCode::SetRfFrequency as u8,
+                    rf_freq_raw[0],
+                    rf_freq_raw[1],
+                    rf_freq_raw[2],
+                    rf_freq_raw[3],
+                ])
+            }
+            RadioConfig::R8x(config) => {
+                // See section 4.3, and this from the table.
+                // "The LSB of rfFrequency is equal to the PLL step i.e. 52e6/2^18 Hz, where 52e6 is the crystal frequency in Hz. SetRfFrequency()
+                // defines the Tx frequency. The Rx frequency is down-converted to the IF. The IF is set by default to 1.3 MHz. This
+                // configuration is handled internally by the transceiver, there is no need for the user to take this offset into account when
+                // configuring SetRfFrequency. This must be called after SetPacket type."
+                let rf_freq_raw = ((config.rf_freq / FREQ_CONST_8X) as u32).to_be_bytes();
+                // todo: Of note, the DS example for this seems wrong... Would like to close the loop on that.
 
-    /// See DS, section 9.6: Receive (RX) Mode).
-    fn set_rxgain_retention(&mut self) -> Result<(), RadioError> {
-        self.interface
-            .write_reg_word(Register6x::RxGainRetention0, 0x01)?;
-        self.interface
-            .write_reg_word(Register6x::RxGainRetention1, 0x08)?;
-        self.interface
-            .write_reg_word(Register6x::RxGainRetention2, 0xac)
-    }
-
-    /// See DS, section 15.2.2.
-    fn tx_clamp_workaround(&mut self) -> Result<(), RadioError> {
-        let val = self.interface.read_reg_word(Register6x::TxClampConfig)?;
-        self.interface
-            .write_reg_word(Register6x::TxClampConfig, val | 0x1e)
-    }
-
-    /// DS, section 16.1.2. Adapted from pseudocode there.
-    /// todo: Sx126x only UFN.
-    fn mod_quality_workaround(&mut self) -> Result<(), RadioError> {
-        let mut value = self.interface.read_reg_word(Register6x::TxModulation)?;
-        if self.config.packet_type == PacketType::Lora
-            && self.config.modulation_params.mod_bandwidth == LoraBandwidthSX126x::BW_500
-        {
-            value &= 0xFB;
-        } else {
-            value |= 0x04;
+                self.interface.write(&[
+                    OpCode::SetRfFrequency as u8,
+                    rf_freq_raw[0],
+                    rf_freq_raw[1],
+                    rf_freq_raw[2],
+                ])
+            }
         }
-
-        // todo: QC how this works with u8 vs u16.
-        self.interface
-            .write_reg_word(Register6x::TxModulation, value)
-    }
-
-    /// See DS, section 15.3.2
-    /// "It is advised to add the following commands after ANY Rx with Timeout active sequence, which stop the RTC and clear the
-    /// timeout event, if any."
-    pub fn implicit_header_to_workaround(&mut self) -> Result<(), RadioError> {
-        // todo DS typo: Shows 0920 which is a diff one in code snipped.
-        self.interface
-            .write_reg_word(Register6x::RtcControl, 0x00)?;
-        let val = self.interface.read_reg_word(Register6x::EventMask)?;
-        self.interface
-            .write_reg_word(Register6x::EventMask, val | 0x02)
     }
 
     /// Send modulation parameters found in the config, to the radio.
-    /// DS, section 13.4.5. Parameters depend on the packet tyhpe.
-    pub fn set_mod_params_sx126x(&mut self) -> Result<(), RadioError> {
+    /// 6x DS, section 13.4.5. Parameters depend on the packet type.
+    /// 8x DS: Section 11.7.7
+    pub fn set_mod_params(&mut self) -> Result<(), RadioError> {
         let mut p1 = 0;
         let mut p2 = 0;
         let mut p3 = 0;
@@ -536,71 +534,64 @@ impl Radio {
         let p7 = 0;
         let p8 = 0;
 
-        match self.config.packet_type {
-            PacketType::Gfsk => {
-                unimplemented!()
+        match self.config {
+            RadioConfig::R6x(config) => {
+                match config.packet_type {
+                    PacketType::Gfsk => {
+                        unimplemented!()
+                    }
+                    PacketType::Lora => {
+                        p1 = config.modulation_params.spreading_factor as u8;
+                        p2 = config.modulation_params.mod_bandwidth as u8;
+                        p3 = config.modulation_params.coding_rate as u8;
+                        p4 = config.modulation_params.low_data_rate_optimization as u8;
+                    }
+                    PacketType::LrFhss => {
+                        unimplemented!()
+                    }
+                }
+
+                // todo: Confirm we can ignore unused params.
+
+                self.interface.write(&[
+                    OpCode::SetModulationParams as u8,
+                    p1,
+                    p2,
+                    p3,
+                    p4,
+                    p5,
+                    p6,
+                    p7,
+                    p8,
+                ])
             }
-            PacketType::Lora => {
-                p1 = self.config.modulation_params.spreading_factor as u8;
-                p2 = self.config.modulation_params.mod_bandwidth as u8;
-                p3 = self.config.modulation_params.coding_rate as u8;
-                p4 = self.config.modulation_params.low_data_rate_optimization as u8;
-            }
-            PacketType::LrFhss => {
-                unimplemented!()
+            RadioConfig::R8x(config) => {
+                match config.packet_type {
+                    PacketType::Gfsk => {
+                        unimplemented!()
+                    }
+                    PacketType::Lora => {
+                        p1 = config.modulation_params.spreading_factor as u8;
+                        p2 = config.modulation_params.mod_bandwidth as u8;
+                        p3 = config.modulation_params.coding_rate as u8;
+                    }
+                    PacketType::LrFhss => {
+                        unimplemented!()
+                    }
+                }
+
+                // todo: Confirm we can ignore unused params.
+
+                self.interface
+                    .write(&[OpCode::SetModulationParams.val_8x(), p1, p2, p3])
             }
         }
-
-        // todo: Confirm we can ignore unused params.
-
-        self.interface.write(&[
-            OpCode::SetModulationParams as u8,
-            p1,
-            p2,
-            p3,
-            p4,
-            p5,
-            p6,
-            p7,
-            p8,
-        ])
-    }
-
-    /// Send modulation parameters found in the config, to the radio.
-    /// DS: Section 11.7.7
-    pub fn set_mod_params_sx128x(&mut self) -> Result<(), RadioError> {
-        let mut p1 = 0;
-        let mut p2 = 0;
-        let mut p3 = 0;
-
-        match self.config.packet_type {
-            PacketType::Gfsk => {
-                unimplemented!()
-            }
-            PacketType::Lora => {
-                p1 = self.config.modulation_params_sx128x.spreading_factor as u8;
-                p2 = self.config.modulation_params_sx128x.mod_bandwidth as u8;
-                p3 = self.config.modulation_params_sx128x.coding_rate as u8;
-            }
-            PacketType::LrFhss => {
-                unimplemented!()
-            }
-        }
-
-        // todo: Confirm we can ignore unused params.
-
-        self.interface
-            .write(&[OpCode::SetModulationParams.val_8x(), p1, p2, p3])
     }
 
     /// Send packet parameters found in the config, to the radio.
-    /// DS, section 13.4.6.
-    fn set_packet_params_sx126x(&mut self) -> Result<(), RadioError> {
-        // The preamble is between 10 and 65,535 symbols.
-        if self.config.packet_params.preamble_len < 10 {
-            return Err(RadioError::Config);
-        }
-
+    /// 6x: DS, section 13.4.6.
+    /// 8x: DS, section 11.7.8
+    fn set_packet_params(&mut self) -> Result<(), RadioError> {
         let mut p1 = 0;
         let mut p2 = 0;
         let mut p3 = 0;
@@ -611,97 +602,115 @@ impl Radio {
         let p8 = 0;
         let p9 = 0;
 
-        match self.config.packet_type {
-            PacketType::Gfsk => {
-                unimplemented!()
-            }
-            PacketType::Lora => {
-                let preamble_len = self.config.packet_params.preamble_len.to_be_bytes();
+        match self.config {
+            RadioConfig::R6x(config) => {
+                // The preamble is between 10 and 65,535 symbols.
+                if config.packet_params.preamble_len < 10 {
+                    return Err(RadioError::Config);
+                }
+                match config.packet_type {
+                    PacketType::Gfsk => {
+                        unimplemented!()
+                    }
+                    PacketType::Lora => {
+                        let preamble_len = config.packet_params.preamble_len.to_be_bytes();
 
-                p1 = preamble_len[0];
-                p2 = preamble_len[1];
-                p3 = self.config.packet_params.header_addtype.val_sx126x();
-                p4 = self.config.packet_params.payload_len;
-                p5 = self.config.packet_params.crc_enabled.val_sx126x();
-                p6 = self.config.packet_params.invert_iq.val_sx126x();
+                        p1 = preamble_len[0];
+                        p2 = preamble_len[1];
+                        p3 = config.packet_params.header_type.val_sx126x();
+                        p4 = config.packet_params.payload_len;
+                        p5 = config.packet_params.crc_enabled.val_sx126x();
+                        p6 = config.packet_params.invert_iq.val_sx126x();
+                    }
+                    PacketType::LrFhss => {
+                        unimplemented!()
+                    }
+                }
+
+                // todo: Confirm we can ignore unused params.
+
+                self.interface.write(&[
+                    OpCode::SetPacketParams as u8,
+                    p1,
+                    p2,
+                    p3,
+                    p4,
+                    p5,
+                    p6,
+                    p7,
+                    p8,
+                    p9,
+                ])
             }
-            PacketType::LrFhss => {
-                unimplemented!()
+            RadioConfig::R8x(config) => {
+                // Check preamble. len. Recommended: 12.
+                // if config.packet_params.preamble_len < 10 {
+                //     return Err(RadioError::Config);
+                // }
+
+                let mut p1 = 0;
+                let mut p2 = 0;
+                let mut p3 = 0;
+                let mut p4 = 0;
+                let mut p5 = 0;
+                let mut p6 = 0;
+                let p7 = 0;
+                let p8 = 0;
+                let p9 = 0;
+
+                match config.packet_type {
+                    PacketType::Gfsk => {
+                        unimplemented!()
+                    }
+                    PacketType::Lora => {
+                        // Note: The preamble here is handled differently from SX126x, to fit in a single param.
+                        // preamble length = LORA_PBLE_LEN_MANT*2^(LORA_PBLE_LEN_EXP)
+                        let pble_len_maint = (config.packet_params.preamble_len & 0xf) as u8;
+                        // Hard-set this at 0 for now; use `maint` raw. Limited to up to 16 until this is changed.
+                        let pble_len_exp: u8 = 0;
+
+                        // todo: QC order.
+                        let preamble_len = ((pble_len_exp & 0xf) << 4) | (pble_len_maint & 0xf);
+
+                        p1 = preamble_len;
+                        p2 = config.packet_params.header_type.val_sx128x();
+                        p3 = config.packet_params.payload_len;
+                        p4 = config.packet_params.crc_enabled.val_sx128x();
+                        p5 = config.packet_params.invert_iq.val_sx128x();
+                    }
+                    PacketType::LrFhss => {
+                        unimplemented!()
+                    }
+                }
+
+                // todo: Confirm we can ignore unused params.
+
+                self.interface.write(&[
+                    OpCode::SetPacketParams.val_8x(),
+                    p1,
+                    p2,
+                    p3,
+                    p4,
+                    p5,
+                    p6,
+                    p7,
+                ])
             }
         }
-
-        // todo: Confirm we can ignore unused params.
-
-        self.interface.write(&[
-            OpCode::SetPacketParams as u8,
-            p1,
-            p2,
-            p3,
-            p4,
-            p5,
-            p6,
-            p7,
-            p8,
-            p9,
-        ])
     }
 
-    /// Send packet parameters found in the config, to the radio.
-    /// DS, section 11.7.8
-    fn set_packet_params_sx128x(&mut self) -> Result<(), RadioError> {
-        // Check preamble. len. Recommended: 12.
-        // if self.config.packet_params.preamble_len < 10 {
-        //     return Err(RadioError::Config);
-        // }
-
-        let mut p1 = 0;
-        let mut p2 = 0;
-        let mut p3 = 0;
-        let mut p4 = 0;
-        let mut p5 = 0;
-        let mut p6 = 0;
-        let p7 = 0;
-        let p8 = 0;
-        let p9 = 0;
-
-        match self.config.packet_type {
-            PacketType::Gfsk => {
-                unimplemented!()
-            }
-            PacketType::Lora => {
-                // Note: The preamble here is handled differently from SX126x, to fit in a single param.
-                // preamble length = LORA_PBLE_LEN_MANT*2^(LORA_PBLE_LEN_EXP)
-                let pble_len_maint = (self.config.packet_params.preamble_len & 0xf) as u8;
-                // Hard-set this at 0 for now; use `maint` raw. Limited to up to 16 until this is changed.
-                let pble_len_exp: u8 = 0;
-
-                // todo: QC order.
-                let preamble_len = ((pble_len_exp & 0xf) << 4) | (pble_len_maint & 0xf);
-
-                p1 = preamble_len;
-                p2 = self.config.packet_params.header_type.val_sx128x();
-                p3 = self.config.packet_params.payload_len;
-                p4 = self.config.packet_params.crc_enabled.val_sx128x();
-                p5 = self.config.packet_params.invert_iq.val_sx128x();
-            }
-            PacketType::LrFhss => {
-                unimplemented!()
-            }
-        }
-
-        // todo: Confirm we can ignore unused params.
-
-        self.interface
-            .write(&[OpCode::SetPacketParams.val_8x(), p1, p2, p3, p4, p5, p6, p7])
-    }
-
-    /// See DS, section 13.1.14. These settings should be hard-set to specific values.
+    /// 6x only. See DS, section 13.1.14. These settings should be hard-set to specific values.
     /// See Table 13-21: PA Operating Modes and Optimal Settings for how to set this.
     fn set_pa_config(&mut self) -> Result<(), RadioError> {
-        let (duty_cycle, hp_max) = self.config.output_power.dutycycle_hpmax();
-        // Byte 3 is always 0 for sx1262 (1 for 1261). Byte 4 is always 1.
-        self.interface
-            .write(&[OpCode::SetPAConfig as u8, duty_cycle, hp_max, 0, 1])
+        match self.config {
+            RadioConfig::R6x(config) => {
+                let (duty_cycle, hp_max) = config.output_power.dutycycle_hpmax();
+                // Byte 3 is always 0 for sx1262 (1 for 1261). Byte 4 is always 1.
+                self.interface
+                    .write(&[OpCode::SetPAConfig as u8, duty_cycle, hp_max, 0, 1])
+            }
+            _ => unimplemented!(),
+        }
     }
 
     /// DS, section 13.4.4
@@ -709,12 +718,19 @@ impl Radio {
     /// - 17 (0xEF) to +14 (0x0E) dBm by step of 1 dB if low power PA is selected
     /// - 9 (0xF7) to +22 (0x16) dBm by step of 1 dB if high power PA is selected
     fn set_tx_params(&mut self) -> Result<(), RadioError> {
-        let power = 0x16; // Max power.
-        self.interface.write(&[
-            OpCode::SetTxParams as u8,
-            power,
-            self.config.ramp_time as u8,
-        ])
+        match self.config {
+            RadioConfig::R6x(config) => {
+                let power = 0x16; // Max power.
+                self.interface
+                    .write(&[OpCode::SetTxParams as u8, power, config.ramp_time as u8])
+            }
+            RadioConfig::R8x(config) => {
+                // todo: Come back to this...
+                // let power = 0x16; // Max power.
+                // self.interface
+                //     .write(&[OpCode::SetTxParams as u8, power, config.ramp_time as u8])
+            }
+        }
     }
 
     /// Sets the device into sleep mode; the lowest current consumption possible. Wake up by setting CS low.
@@ -800,7 +816,7 @@ impl Radio {
 
         // 9. Define the frame format to be used with the command SetPacketParams(...)
         self.config.packet_params.payload_len = payload_len as u8;
-        self.set_packet_params_sx126x()?;
+        self.set_packet_params()?;
 
         // 10. Configure DIO and IRQ: use the command SetDioIrqParams(...) to select TxDone IRQ and map this IRQ to a DIO (DIO1,
         // DIO2 or DIO3)
@@ -862,7 +878,7 @@ impl Radio {
         // 6. Define the frame format to be used with the command SetPacketParams(...)
         // We must set this, as it may have been changed during a transmission to payload length.
         self.config.packet_params.payload_len = max_payload_len;
-        self.set_packet_params_sx126x()?;
+        self.set_packet_params()?;
 
         // 7. Configure DIO and irq: use the command SetDioIrqParams(...) to select the IRQ RxDone and map this IRQ to a DIO (DIO1
         // or DIO2 or DIO3), set IRQ Timeout as well.
