@@ -1,6 +1,6 @@
 use hal::gpio::Pin;
 
-use crate::sx126x::{CommandStatus, OperatingModeRead};
+use crate::{CommandStatus, OperatingModeRead};
 
 pub struct RadioPins {
     pub cs: Pin,

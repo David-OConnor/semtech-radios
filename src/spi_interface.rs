@@ -58,6 +58,8 @@ impl Interface {
         Ok(())
     }
 
+    // todo: Next, get the opcodes and regs set up for 8x.
+
     /// Perform a write to an opcode, with 1 byte of data.
     pub fn write_op_word(&mut self, code: OpCode, word: u8) -> Result<(), RadioError> {
         self.wait_on_busy()?;

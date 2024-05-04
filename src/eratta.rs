@@ -3,12 +3,12 @@
 use crate::{
     params::LoraBandwidthSX126x,
     shared::{RadioError, Register6x},
-    sx126x::{PacketType, Radio, RadioConfig},
+    PacketType, Radio, RadioConfig,
 };
 
 impl Radio {
     /// (6x only) See DS, section 9.6: Receive (RX) Mode).
-    fn set_rxgain_retention(&mut self) -> Result<(), RadioError> {
+    pub fn set_rxgain_retention(&mut self) -> Result<(), RadioError> {
         self.interface
             .write_reg_word(Register6x::RxGainRetention0, 0x01)?;
         self.interface
@@ -18,7 +18,7 @@ impl Radio {
     }
 
     /// (6x only) See DS, section 15.2.2.
-    fn tx_clamp_workaround(&mut self) -> Result<(), RadioError> {
+    pub fn tx_clamp_workaround(&mut self) -> Result<(), RadioError> {
         let val = self.interface.read_reg_word(Register6x::TxClampConfig)?;
         self.interface
             .write_reg_word(Register6x::TxClampConfig, val | 0x1e)
@@ -26,7 +26,7 @@ impl Radio {
 
     /// DS, section 16.1.2. Adapted from pseudocode there.
     /// (6x only)
-    fn mod_quality_workaround(&mut self) -> Result<(), RadioError> {
+    pub fn mod_quality_workaround(&mut self) -> Result<(), RadioError> {
         let mut value = self.interface.read_reg_word(Register6x::TxModulation)?;
         match self.config {
             RadioConfig::R6x(config) => {
