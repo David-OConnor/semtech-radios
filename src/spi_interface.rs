@@ -22,7 +22,7 @@ pub const RADIO_BUF_SIZE: usize = 255;
 const AHB_FREQ: u32 = 170_000_000; // todo: temp hard-coded
 const DMA_PERIPH: DmaPeriph = DmaPeriph::Dma1; // todo: temp hard-coded
 
-use crate::shared::{RadioPins, Register6x};
+use crate::shared::{RadioPins, Register, Register6x, Register8x};
 
 pub struct Interface {
     pub spi: Spi_,
@@ -96,8 +96,12 @@ impl Interface {
     }
 
     /// Write a single word to a register.
-    pub fn write_reg_word(&mut self, reg: Register6x, word: u8) -> Result<(), RadioError> {
-        let r = if self.r8x { reg.val_8x() } else { reg as u16 };
+    pub fn write_reg_word(&mut self, reg: Register, word: u8) -> Result<(), RadioError> {
+        let r = match reg {
+            Register::Reg6x(reg) => reg as u16,
+            Register::Reg8x(reg) => reg as u16,
+        };
+
         let c = if self.r8x {
             OpCode::WriteRegister.val_8x()
         } else {
@@ -123,8 +127,12 @@ impl Interface {
     }
 
     /// Read a single word from a register.
-    pub fn read_reg_word(&mut self, reg: Register6x) -> Result<u8, RadioError> {
-        let r = if self.r8x { reg.val_8x() } else { reg as u16 };
+    pub fn read_reg_word(&mut self, reg: Register) -> Result<u8, RadioError> {
+        let r = match reg {
+            Register::Reg6x(reg) => reg as u16,
+            Register::Reg8x(reg) => reg as u16,
+        };
+
         let c = if self.r8x {
             OpCode::ReadRegister.val_8x()
         } else {
@@ -173,13 +181,11 @@ impl Interface {
         } else {
             OpCode::WriteBuffer as u8
         };
-        unsafe {
-            self.write_buf[0] = c;
-            self.write_buf[1] = offset;
+        self.write_buf[0] = c;
+        self.write_buf[1] = offset;
 
-            for (i, word) in payload.iter().enumerate() {
-                self.write_buf[i + 2] = *word;
-            }
+        for (i, word) in payload.iter().enumerate() {
+            self.write_buf[i + 2] = *word;
         }
 
         self.wait_on_busy()?;
@@ -207,12 +213,11 @@ impl Interface {
             OpCode::ReadBuffer as u8
         };
 
-        unsafe {
-            self.write_buf[0] = c;
-            self.write_buf[1] = offset;
-            // "Note that the NOP must be sent after sending the offset."
-            self.write_buf[2] = 0;
-        }
+        self.write_buf[0] = c;
+        self.write_buf[1] = offset;
+        // "Note that the NOP must be sent after sending the offset."
+        self.write_buf[2] = 0;
+
         // DS, Table 13-27: ReadBuffer SPI Transaction: Payload starts at byte 3.
         let buf_end = payload_len as usize + 3;
         // let buf_end = 4; // todo  t
@@ -260,7 +265,7 @@ impl Interface {
         let payload_start = self.rx_payload_start as usize;
         let payload_start_i = 3 + payload_start;
 
-        unsafe { &mut self.read_buf[payload_start_i..payload_start_i + payload_len] }
+        &mut self.read_buf[payload_start_i..payload_start_i + payload_len]
     }
 
     //

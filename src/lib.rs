@@ -16,7 +16,7 @@ use crate::{
     params::{
         LoraBandwidthSX126x, ModulationParamsLora6x, ModulationParamsLora8x, PacketParamsLora,
     },
-    shared::{OpCode, RadioError, RadioPins, Register6x},
+    shared::{OpCode, RadioError, RadioError::UnexpectedStatus, RadioPins, Register, Register6x},
     spi_interface::{Interface, Spi_, RADIO_BUF_SIZE},
 };
 
@@ -394,6 +394,12 @@ impl Radio {
         tx_ch: DmaChannel,
         rx_ch: DmaChannel,
     ) -> Result<Self, RadioError> {
+        let r8x = if let RadioConfig::R8x(_) = config {
+            true
+        } else {
+            false
+        };
+
         let mut result = Self {
             config,
             // config_8x,
@@ -406,11 +412,7 @@ impl Radio {
                 write_buf: [0; RADIO_BUF_SIZE],
                 rx_payload_len: 0,
                 rx_payload_start: 0,
-                r8x: if let RadioConfig::R8x(_) = config {
-                    true
-                } else {
-                    false
-                },
+                r8x,
             },
             // operating_mode: OperatingMode::StbyOsc,
         };
@@ -433,12 +435,12 @@ impl Radio {
         // step before issuing any other radio configuration commands."
 
         match result.config {
-            RadioConfig::R6x(config) => {
+            RadioConfig::R6x(ref config) => {
                 result
                     .interface
                     .write_op_word(OpCode::SetPacketType, config.packet_type as u8)?;
             }
-            RadioConfig::R8x(config) => {
+            RadioConfig::R8x(ref config) => {
                 result
                     .interface
                     .write_op_word(OpCode::SetPacketType, config.packet_type as u8)?;
@@ -463,39 +465,49 @@ impl Radio {
         }
 
         match result.config {
-            RadioConfig::R6x(config) => {
+            RadioConfig::R6x(ref config) => {
+                // prevents borrow mut error
+                let (dc_dc, fallback, dio, network) = (
+                    config.dc_dc_enabled,
+                    config.fallback_mode,
+                    config.use_dio2_as_rfswitch,
+                    config.lora_network,
+                );
+
                 // Use the LDO, or DC-DC setup as required, based on hardware config.
                 result
                     .interface
-                    .write_op_word(OpCode::SetRegulatorMode, config.dc_dc_enabled as u8)?;
+                    .write_op_word(OpCode::SetRegulatorMode, dc_dc as u8)?;
 
                 result.set_pa_config()?;
 
                 result
                     .interface
-                    .write_op_word(OpCode::SetTxFallbackMode, config.fallback_mode as u8)?;
+                    .write_op_word(OpCode::SetTxFallbackMode, fallback as u8)?;
 
-                result.interface.write_op_word(
-                    OpCode::SetDIO2AsRfSwitchCtrl,
-                    config.use_dio2_as_rfswitch as u8,
-                )?;
+                result
+                    .interface
+                    .write_op_word(OpCode::SetDIO2AsRfSwitchCtrl, dio as u8)?;
 
                 result.set_tx_params()?;
 
                 // Note: Not required if private due to the reset value.
-                result.set_sync_word(config.lora_network)?;
+                result.set_sync_word(network)?;
             }
-            RadioConfig::R8x(config) => {
+            RadioConfig::R8x(ref config) => {
+                // prevents borrow mut error
+                let (dc_dc, fallback) = (config.dc_dc_enabled, config.fallback_mode);
+
                 // Use the LDO, or DC-DC setup as required, based on hardware config.
                 result
                     .interface
-                    .write_op_word(OpCode::SetRegulatorMode, config.dc_dc_enabled as u8)?;
+                    .write_op_word(OpCode::SetRegulatorMode, dc_dc as u8)?;
 
                 result.set_pa_config()?;
 
                 result
                     .interface
-                    .write_op_word(OpCode::SetTxFallbackMode, config.fallback_mode as u8)?;
+                    .write_op_word(OpCode::SetTxFallbackMode, fallback as u8)?;
 
                 result.set_tx_params()?;
             }
@@ -513,10 +525,11 @@ impl Radio {
     /// 6x: See DS, section 13.4.1 for this computation.
     /// 8xx: See DS, section 11.7.3.
     fn set_rf_freq(&mut self) -> Result<(), RadioError> {
-        match self.config {
+        match &self.config {
             RadioConfig::R6x(config) => {
                 // We convert to u64 to prevent an overflow.
-                let rf_freq_raw = ((config.rf_freq as u64 / FREQ_CONST_6X) as u32).to_be_bytes();
+                let rf_freq_raw =
+                    ((config.rf_freq as f32 / FREQ_CONST_6X as f32) as u32).to_be_bytes();
 
                 self.interface.write(&[
                     OpCode::SetRfFrequency as u8,
@@ -532,7 +545,8 @@ impl Radio {
                 // defines the Tx frequency. The Rx frequency is down-converted to the IF. The IF is set by default to 1.3 MHz. This
                 // configuration is handled internally by the transceiver, there is no need for the user to take this offset into account when
                 // configuring SetRfFrequency. This must be called after SetPacket type."
-                let rf_freq_raw = ((config.rf_freq / FREQ_CONST_8X) as u32).to_be_bytes();
+                let rf_freq_raw =
+                    ((config.rf_freq as f32 / FREQ_CONST_8X as f32) as u32).to_be_bytes();
                 // todo: Of note, the DS example for this seems wrong... Would like to close the loop on that.
 
                 self.interface.write(&[
@@ -558,7 +572,7 @@ impl Radio {
         let p7 = 0;
         let p8 = 0;
 
-        match self.config {
+        match &self.config {
             RadioConfig::R6x(config) => {
                 match config.packet_type {
                     PacketType::Gfsk => {
@@ -571,8 +585,10 @@ impl Radio {
                         p4 = config.modulation_params.low_data_rate_optimization as u8;
                     }
                     PacketType::LrFhss => {
+                        // todo: FHSS on 8x
                         unimplemented!()
                     }
+                    _ => unimplemented!(),
                 }
 
                 // todo: Confirm we can ignore unused params.
@@ -600,8 +616,10 @@ impl Radio {
                         p3 = config.modulation_params.coding_rate as u8;
                     }
                     PacketType::LrFhss => {
+                        // todo: Implement for fhss
                         unimplemented!()
                     }
+                    _ => unimplemented!(),
                 }
 
                 // todo: Confirm we can ignore unused params.
@@ -626,7 +644,7 @@ impl Radio {
         let p8 = 0;
         let p9 = 0;
 
-        match self.config {
+        match &self.config {
             RadioConfig::R6x(config) => {
                 // The preamble is between 10 and 65,535 symbols.
                 if config.packet_params.preamble_len < 10 {
@@ -647,8 +665,10 @@ impl Radio {
                         p6 = config.packet_params.invert_iq.val_sx126x();
                     }
                     PacketType::LrFhss => {
+                        // todo: Implement for 8x: FHSS.
                         unimplemented!()
                     }
+                    _ => unimplemented!(), // BLE and Ranging.
                 }
 
                 // todo: Confirm we can ignore unused params.
@@ -703,8 +723,10 @@ impl Radio {
                         p5 = config.packet_params.invert_iq.val_sx128x();
                     }
                     PacketType::LrFhss => {
+                        // todo: Implement this for sx1280: FHSS.
                         unimplemented!()
                     }
+                    _ => unimplemented!(), // BLE and ranging.
                 }
 
                 // todo: Confirm we can ignore unused params.
@@ -726,7 +748,7 @@ impl Radio {
     /// 6x only. See DS, section 13.1.14. These settings should be hard-set to specific values.
     /// See Table 13-21: PA Operating Modes and Optimal Settings for how to set this.
     fn set_pa_config(&mut self) -> Result<(), RadioError> {
-        match self.config {
+        match &self.config {
             RadioConfig::R6x(config) => {
                 let (duty_cycle, hp_max) = config.output_power.dutycycle_hpmax();
                 // Byte 3 is always 0 for sx1262 (1 for 1261). Byte 4 is always 1.
@@ -744,7 +766,7 @@ impl Radio {
     ///
     /// 8x: 13db is max: power = 31 (0x1f)
     fn set_tx_params(&mut self) -> Result<(), RadioError> {
-        let (power, ramp_time) = match self.config {
+        let (power, ramp_time) = match &self.config {
             RadioConfig::R6x(config) => {
                 (0x16, config.ramp_time as u8) // Max power.
             }
@@ -794,7 +816,19 @@ impl Radio {
             return Err(RadioError::PayloadSize(payload_len));
         }
 
+        // Separate to prevent borrow errors.
         match &mut self.config {
+            RadioConfig::R6x(ref mut config) => {
+                config.rf_freq = rf_freq;
+                config.packet_params.payload_len = payload_len as u8;
+            }
+            RadioConfig::R8x(ref mut config) => {
+                config.rf_freq = rf_freq as u64;
+                config.packet_params.payload_len = payload_len as u8;
+            }
+        }
+
+        match &self.config {
             RadioConfig::R6x(config) => {
                 // todo: 8x too?
                 // 1. If not in STDBY_RC mode, then go to this mode with the command SetStandby(...)
@@ -809,7 +843,7 @@ impl Radio {
                 //     .write_op_word(OpCode::SetPacketType, self.config.packet_type as u8)?;
 
                 // 3. Define the RF frequency with the command SetRfFrequency(...)
-                config.rf_freq = rf_freq;
+
                 self.set_rf_freq()?;
 
                 // 4. Define the Power Amplifier configuration with the command SetPaConfig(...)
@@ -847,7 +881,6 @@ impl Radio {
                 // self.set_mod_params()?;
 
                 // 9. Define the frame format to be used with the command SetPacketParams(...)
-                config.packet_params.payload_len = payload_len as u8;
                 self.set_packet_params()?;
 
                 // 10. Configure DIO and IRQ: use the command SetDioIrqParams(...) to select TxDone IRQ and map this IRQ to a DIO (DIO1,
@@ -872,8 +905,6 @@ impl Radio {
             }
             RadioConfig::R8x(config) => {
                 // todo: Where do we set the frequency? Adding here for now.
-                // todo: Make sure you don't overflow.
-                config.rf_freq = rf_freq as u64;
                 self.set_rf_freq()?;
 
                 // 1. Define the output power and ramp time by sending the command:
@@ -917,6 +948,9 @@ impl Radio {
                 // Wait for IRQ TxDone or RxTxTimeout
                 // Once a packet has been sent or a timeout has occurred, the transceiver goes automatically to STDBY_RC mode.
 
+                // todo: Packet params?
+                // self.set_packet_params()?;
+
                 self.start_transmission()?; // todo: Handle in ISR once using DMA.
                                             // (Handled in SPI Tx complete ISR)
 
@@ -935,7 +969,7 @@ impl Radio {
         // todo: Sort out for 8x.
         self.set_irq(&[Irq::TxDone, Irq::Timeout], &[])?; // DIO 1
 
-        let timeout = match self.config {
+        let timeout = match &self.config {
             RadioConfig::R6x(c) => c.tx_timeout,
             RadioConfig::R8x(c) => c.tx_timeout,
         };
@@ -948,8 +982,22 @@ impl Radio {
     /// (8x) 14.4.3
     /// todo: COnsider also using the SetDutyCycle sniff mode.
     pub fn receive(&mut self, max_payload_len: u8, rf_freq: u32) -> Result<(), RadioError> {
+        // Separate to prevent borrow errors.
         match &mut self.config {
+            RadioConfig::R6x(ref mut config) => {
+                config.rf_freq = rf_freq;
+                config.packet_params.payload_len = max_payload_len;
+            }
+            RadioConfig::R8x(ref mut config) => {
+                config.rf_freq = rf_freq as u64;
+                config.packet_params.payload_len = max_payload_len;
+            }
+        }
+
+        match &self.config {
             RadioConfig::R6x(config) => {
+                let timeout = config.rx_timeout; // prevents borrow errors.
+
                 // 1. If not in STDBY_RC mode, then set the circuit in this mode with the command SetStandby()
                 self.set_op_mode(OperatingMode::StbyRc)?;
 
@@ -959,7 +1007,7 @@ impl Radio {
                 //     .write_op_word(OpCode::SetPacketType, config.packet_type as u8)?;
 
                 // 3.Define the RF frequency with the command SetRfFrequency(...)
-                config.rf_freq = rf_freq;
+
                 self.set_rf_freq()?;
 
                 // 4. Define where the data will be stored inside the data buffer in Rx with the command SetBufferBaseAddress(...)
@@ -975,7 +1023,7 @@ impl Radio {
 
                 // 6. Define the frame format to be used with the command SetPacketParams(...)
                 // We must set this, as it may have been changed during a transmission to payload length.
-                config.packet_params.payload_len = max_payload_len;
+
                 self.set_packet_params()?;
 
                 // 7. Configure DIO and irq: use the command SetDioIrqParams(...) to select the IRQ RxDone and map this IRQ to a DIO (DIO1
@@ -986,15 +1034,16 @@ impl Radio {
                 // (Set on init)
 
                 // 9. Set the circuit in reception mode: use the command SetRx(). Set the parameter to enable timeout or continuous mode
-                self.set_op_mode(OperatingMode::Rx(config.rx_timeout))?;
+                self.set_op_mode(OperatingMode::Rx(timeout))?;
 
                 // 10. Wait for IRQ RxDone2 or Timeout: the chip will stay in Rx and look for a new packet if the continuous mode is selected
                 // otherwise it will goes to STDBY_RC mode.
                 // (The rest is handled in `cleanup_rx`, called from a firmware GPIO ISR).
             }
             RadioConfig::R8x(config) => {
+                let timeout = config.rx_timeout; // prevents borrow errors.
+
                 // todo: set freq? Here for now.
-                config.rf_freq = rf_freq as u64; // todo: Make sure you don't overflow! Happens at 4.295 Ghz.
                 self.set_rf_freq()?;
 
                 // 1. Configure the DIOs and Interrupt sources (IRQs) by using command:
@@ -1008,6 +1057,7 @@ impl Radio {
                 // •CrcError to indicate that the received packet has a CRC error
                 // •RxTxTimeout to indicate that no packet has been detected in a given time frame defined by timeout parameter in the
                 // SetRx() command.
+
                 self.set_irq(&[], &[Irq::RxDone, Irq::Timeout])?; // DIO3.
 
                 // 2.Once configured, set the transceiver in receiver mode to start reception using command:
@@ -1021,7 +1071,7 @@ impl Radio {
                 // •periodBaseCount is set to another value, then Timeout is active. The device remains in Rx mode; it returns automatically
                 // to STDBY_RC Mode on timer end-of-count or when a packet has been received. As soon as a packet is detected, the
                 // timer is automatically disabled to allow complete reception of the packet.
-                self.set_op_mode(OperatingMode::Rx(config.rx_timeout))?;
+                self.set_op_mode(OperatingMode::Rx(timeout))?;
 
                 // todo: What about things in the 6x section above like setting packet params?
 
@@ -1073,7 +1123,6 @@ impl Radio {
 
         Ok(())
     }
-
     /// Run these after transmission is complete, eg in an ISR. Clears the IRQ, and reports errors.
     pub fn cleanup_tx(&mut self) -> Result<(), RadioError> {
         self.clear_irq(&[Irq::TxDone, Irq::Timeout])?;
@@ -1277,10 +1326,15 @@ impl Radio {
     fn set_sync_word(&mut self, network: LoraNetwork) -> Result<(), RadioError> {
         let sync_word_bytes = (network as u16).to_be_bytes();
 
-        self.interface
-            .write_reg_word(Register6x::LoraSyncWordMsb, sync_word_bytes[0])?;
-        self.interface
-            .write_reg_word(Register6x::LoraSyncWordLsb, sync_word_bytes[1])?;
+        // todo: 6x for now.
+        self.interface.write_reg_word(
+            Register::Reg6x(Register6x::LoraSyncWordMsb),
+            sync_word_bytes[0],
+        )?;
+        self.interface.write_reg_word(
+            Register::Reg6x(Register6x::LoraSyncWordLsb),
+            sync_word_bytes[1],
+        )?;
 
         Ok(())
     }

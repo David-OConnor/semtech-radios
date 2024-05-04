@@ -127,6 +127,11 @@ impl OpCode {
     }
 }
 
+pub enum Register {
+    Reg6x(Register6x),
+    Reg8x(Register8x),
+}
+
 #[derive(Clone, Copy)]
 #[allow(dead_code)]
 #[repr(u16)]
