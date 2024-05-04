@@ -406,6 +406,11 @@ impl Radio {
                 write_buf: [0; RADIO_BUF_SIZE],
                 rx_payload_len: 0,
                 rx_payload_start: 0,
+                r8x: if let RadioConfig::R8x(_) = config {
+                    true
+                } else {
+                    false
+                },
             },
             // operating_mode: OperatingMode::StbyOsc,
         };
@@ -804,7 +809,7 @@ impl Radio {
                 //     .write_op_word(OpCode::SetPacketType, self.config.packet_type as u8)?;
 
                 // 3. Define the RF frequency with the command SetRfFrequency(...)
-                self.config.rf_freq = rf_freq;
+                config.rf_freq = rf_freq;
                 self.set_rf_freq()?;
 
                 // 4. Define the Power Amplifier configuration with the command SetPaConfig(...)
@@ -842,7 +847,7 @@ impl Radio {
                 // self.set_mod_params()?;
 
                 // 9. Define the frame format to be used with the command SetPacketParams(...)
-                self.config.packet_params.payload_len = payload_len as u8;
+                config.packet_params.payload_len = payload_len as u8;
                 self.set_packet_params()?;
 
                 // 10. Configure DIO and IRQ: use the command SetDioIrqParams(...) to select TxDone IRQ and map this IRQ to a DIO (DIO1,

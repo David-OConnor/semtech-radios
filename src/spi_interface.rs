@@ -33,6 +33,8 @@ pub struct Interface {
     pub write_buf: [u8; RADIO_BUF_SIZE],
     pub rx_payload_len: u8,
     pub rx_payload_start: u8,
+    /// Otherwise, 6x.
+    pub r8x: bool,
 }
 
 impl Interface {
@@ -58,14 +60,14 @@ impl Interface {
         Ok(())
     }
 
-    // todo: Next, get the opcodes and regs set up for 8x.
-
     /// Perform a write to an opcode, with 1 byte of data.
     pub fn write_op_word(&mut self, code: OpCode, word: u8) -> Result<(), RadioError> {
         self.wait_on_busy()?;
 
+        let c = if self.r8x { code.val_8x() } else { code as u8 };
+
         self.pins.cs.set_low();
-        if self.spi.write(&[code as u8, word]).is_err() {
+        if self.spi.write(&[c, word]).is_err() {
             self.pins.cs.set_high();
             return Err(RadioError::Spi);
         };
@@ -76,7 +78,9 @@ impl Interface {
 
     /// Perform a read of an opcode, with 1 byte of data.
     pub fn read_op_word(&mut self, code: OpCode) -> Result<u8, RadioError> {
-        let mut buf = [code as u8, 0, 0, 0, 0];
+        let c = if self.r8x { code.val_8x() } else { code as u8 };
+
+        let mut buf = [c, 0, 0, 0, 0];
 
         self.wait_on_busy()?;
 
@@ -93,19 +97,21 @@ impl Interface {
 
     /// Write a single word to a register.
     pub fn write_reg_word(&mut self, reg: Register6x, word: u8) -> Result<(), RadioError> {
-        let addr_split = shared::split_addr(reg as u16);
+        let r = if self.r8x { reg.val_8x() } else { reg as u16 };
+        let c = if self.r8x {
+            OpCode::WriteRegister.val_8x()
+        } else {
+            OpCode::WriteRegister as u8
+        };
+
+        let addr_split = shared::split_addr(r);
 
         self.wait_on_busy()?;
 
         self.pins.cs.set_low();
         if self
             .spi
-            .write(&[
-                OpCode::WriteRegister as u8,
-                addr_split.0,
-                addr_split.1,
-                word,
-            ])
+            .write(&[c, addr_split.0, addr_split.1, word])
             .is_err()
         {
             self.pins.cs.set_high();
@@ -118,7 +124,14 @@ impl Interface {
 
     /// Read a single word from a register.
     pub fn read_reg_word(&mut self, reg: Register6x) -> Result<u8, RadioError> {
-        let addr_split = shared::split_addr(reg as u16);
+        let r = if self.r8x { reg.val_8x() } else { reg as u16 };
+        let c = if self.r8x {
+            OpCode::ReadRegister.val_8x()
+        } else {
+            OpCode::ReadRegister as u8
+        };
+
+        let addr_split = shared::split_addr(r);
 
         let mut read_buf = [0; 5];
 
@@ -127,10 +140,7 @@ impl Interface {
         self.pins.cs.set_low();
         if self
             .spi
-            .transfer_type2(
-                &[OpCode::ReadRegister as u8, addr_split.0, addr_split.1, 0, 0],
-                &mut read_buf,
-            )
+            .transfer_type2(&[c, addr_split.0, addr_split.1, 0, 0], &mut read_buf)
             .is_err()
         {
             self.pins.cs.set_high();
@@ -158,8 +168,13 @@ impl Interface {
     /// Write with a payload; uses DMA. Must clean up the transaction in an ISR. See note on offsets in
     /// `read_with_payload`.
     pub fn write_with_payload(&mut self, payload: &[u8], offset: u8) -> Result<(), RadioError> {
+        let c = if self.r8x {
+            OpCode::WriteBuffer.val_8x()
+        } else {
+            OpCode::WriteBuffer as u8
+        };
         unsafe {
-            self.write_buf[0] = OpCode::WriteBuffer as u8;
+            self.write_buf[0] = c;
             self.write_buf[1] = offset;
 
             for (i, word) in payload.iter().enumerate() {
@@ -186,8 +201,14 @@ impl Interface {
     /// "Before any read or write operation it is hence necessary to initialize this offset to the corresponding beginning of the buffer.
     /// Upon reading or writing to the data buffer the address pointer will then increment automatically."
     pub fn read_with_payload(&mut self, payload_len: u8, offset: u8) -> Result<(), RadioError> {
+        let c = if self.r8x {
+            OpCode::ReadBuffer.val_8x()
+        } else {
+            OpCode::ReadBuffer as u8
+        };
+
         unsafe {
-            self.write_buf[0] = OpCode::ReadBuffer as u8;
+            self.write_buf[0] = c;
             self.write_buf[1] = offset;
             // "Note that the NOP must be sent after sending the offset."
             self.write_buf[2] = 0;
