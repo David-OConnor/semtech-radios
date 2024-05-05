@@ -2,6 +2,7 @@ use hal::gpio::Pin;
 
 use crate::{CommandStatus, OperatingModeRead};
 
+#[derive(Clone)]
 pub struct RadioPins {
     pub cs: Pin,
     pub busy: Pin,

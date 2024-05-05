@@ -75,7 +75,7 @@ impl LoraSpreadingFactor {
 #[repr(u8)]
 #[derive(Clone, Copy, PartialEq)]
 #[allow(non_camel_case_types, dead_code)]
-pub enum LoraBandwidthSX126x {
+pub enum LoraBandwidth6x {
     BW_7 = 0x00,
     BW_10 = 0x08,
     BW_15 = 0x01,
@@ -94,7 +94,7 @@ pub enum LoraBandwidthSX126x {
 #[derive(Clone, Copy, PartialEq)]
 #[allow(non_camel_case_types, dead_code)]
 /// Table 14-48. Mod param 2.
-pub enum LoraBandwidthSX128x {
+pub enum LoraBandwidth8x {
     BW_1600 = 0x0a,
     BW_800 = 0x18,
     BW_400 = 0x26,
@@ -143,7 +143,7 @@ pub enum LoraLdrOptimization {
 /// (126x) See DS, section 6.1.1: Modulation Parameter.
 #[derive(Clone)]
 pub struct ModulationParamsLora6x {
-    pub mod_bandwidth: LoraBandwidthSX126x,
+    pub mod_bandwidth: LoraBandwidth6x,
     pub spreading_factor: LoraSpreadingFactor,
     pub coding_rate: LoraCodingRate,
     pub low_data_rate_optimization: LoraLdrOptimization,
@@ -156,7 +156,7 @@ impl Default for ModulationParamsLora6x {
     /// With a 64-byte payload, this results in 3-60ms airtime., depending on payload len.
     fn default() -> Self {
         Self {
-            mod_bandwidth: LoraBandwidthSX126x::BW_500,
+            mod_bandwidth: LoraBandwidth6x::BW_500,
             spreading_factor: LoraSpreadingFactor::SF5,
             /// "In normal conditions a
             /// factor of 4/5 provides the best trade-off; in the presence of strong interferers a higher
@@ -170,7 +170,7 @@ impl Default for ModulationParamsLora6x {
 /// (126x) See DS, section 6.1.1: Modulation Parameter.
 #[derive(Clone)]
 pub struct ModulationParamsLora8x {
-    pub mod_bandwidth: LoraBandwidthSX128x,
+    pub mod_bandwidth: LoraBandwidth8x,
     pub spreading_factor: LoraSpreadingFactor,
     pub coding_rate: LoraCodingRate,
 }
@@ -178,7 +178,7 @@ pub struct ModulationParamsLora8x {
 impl Default for ModulationParamsLora8x {
     fn default() -> Self {
         Self {
-            mod_bandwidth: LoraBandwidthSX128x::BW_200,
+            mod_bandwidth: LoraBandwidth8x::BW_200,
             spreading_factor: LoraSpreadingFactor::SF5,
             coding_rate: LoraCodingRate::CR_4_5, // todo: LI coding rates?
         }

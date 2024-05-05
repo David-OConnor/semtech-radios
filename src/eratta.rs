@@ -1,7 +1,7 @@
 //! Eratta workarounds
 
 use crate::{
-    params::LoraBandwidthSX126x,
+    params::LoraBandwidth6x,
     shared::{RadioError, Register, Register6x},
     PacketType, Radio, RadioConfig,
 };
@@ -36,7 +36,7 @@ impl Radio {
         match &self.config {
             RadioConfig::R6x(config) => {
                 if config.packet_type == PacketType::Lora
-                    && config.modulation_params.mod_bandwidth == LoraBandwidthSX126x::BW_500
+                    && config.modulation_params.mod_bandwidth == LoraBandwidth6x::BW_500
                 {
                     value &= 0xFB;
                 } else {

@@ -2,6 +2,8 @@
 
 #![no_std]
 
+use core::ops::RangeTo;
+
 mod eratta;
 pub mod params;
 pub mod shared;
@@ -13,9 +15,7 @@ use defmt::println;
 use hal::dma::DmaChannel;
 
 use crate::{
-    params::{
-        LoraBandwidthSX126x, ModulationParamsLora6x, ModulationParamsLora8x, PacketParamsLora,
-    },
+    params::{LoraBandwidth6x, ModulationParamsLora6x, ModulationParamsLora8x, PacketParamsLora},
     shared::{OpCode, RadioError, RadioError::UnexpectedStatus, RadioPins, Register, Register6x},
     spi_interface::{Interface, Spi_, RADIO_BUF_SIZE},
 };
@@ -246,8 +246,9 @@ pub struct RxBufferStatus {
 /// Note that this contains the raw data, for easy sending on the wire. Convert to appropriate
 /// units at the consumer side.
 /// todo: FSK A/R; same field count, but with different meanings.
+/// todo: For now, coopting for 8x as well.
 #[derive(Default)]
-pub struct RxPacketStatusLora6x {
+pub struct RxPacketStatusLora {
     pub status: u8,
     /// Average over last packet received of RSSI
     /// Actual signal power is –RssiPkt/2 (dBm).
@@ -336,7 +337,7 @@ impl Default for RadioConfig6x {
 pub struct RadioConfig8x {
     pub packet_type: PacketType,
     // RF frequency in Hz.
-    pub rf_freq: u64,
+    pub rf_freq: u32,
     pub dc_dc_enabled: bool,
     pub modulation_params: ModulationParamsLora8x,
     pub packet_params: PacketParamsLora,
@@ -367,6 +368,7 @@ impl Default for RadioConfig8x {
     }
 }
 
+#[derive(Clone)]
 pub enum RadioConfig {
     R6x(RadioConfig6x),
     R8x(RadioConfig8x),
@@ -699,8 +701,8 @@ impl Radio {
                 let mut p5 = 0;
                 let mut p6 = 0;
                 let p7 = 0;
-                let p8 = 0;
-                let p9 = 0;
+                let _p8 = 0;
+                let _p9 = 0;
 
                 match config.packet_type {
                     PacketType::Gfsk => {
@@ -809,9 +811,24 @@ impl Radio {
 
     /// (6x) DS, section 14.2. Frequency is set here and in receive initiation, for use with frequency hopping.
     /// (8x) DS, section 14.4.22.
-    pub fn send_payload(&mut self, payload: &[u8], rf_freq: u32) -> Result<(), RadioError> {
+    // pub fn send_payload(&mut self, payload: &[u8], rf_freq: u32) -> Result<(), RadioError> {
+    pub fn send_payload(&mut self, slice: RangeTo<usize>, rf_freq: u32) -> Result<(), RadioError> {
+        // todo: Re-org to avoid ownership problems
+        let (mut write_buf, payload_len) = {
+            let offset = 0;
+            let payload = &self.interface.write_buf[slice];
+            let mut buf = [0; RADIO_BUF_SIZE];
+            buf[0] = OpCode::WriteBuffer as u8;
+            buf[1] = offset;
+            for (i, word) in payload.iter().enumerate() {
+                buf[i + 2] = *word;
+            }
+
+            (buf, payload.len())
+        };
+
         // todo: Confirm the same for 8x.
-        let payload_len = payload.len();
+        let payload_len = payload_len;
         if payload_len > 255 {
             return Err(RadioError::PayloadSize(payload_len));
         }
@@ -823,13 +840,13 @@ impl Radio {
                 config.packet_params.payload_len = payload_len as u8;
             }
             RadioConfig::R8x(ref mut config) => {
-                config.rf_freq = rf_freq as u64;
+                config.rf_freq = rf_freq;
                 config.packet_params.payload_len = payload_len as u8;
             }
         }
 
         match &self.config {
-            RadioConfig::R6x(config) => {
+            RadioConfig::R6x(_config) => {
                 // todo: 8x too?
                 // 1. If not in STDBY_RC mode, then go to this mode with the command SetStandby(...)
                 self.set_op_mode(OperatingMode::StbyRc)?;
@@ -867,12 +884,12 @@ impl Radio {
 
                 // todo: Having trouble with SPI DMA writes (but reads work) Skipping for now; blocking.
                 {
-                    let mut write_buf = [0; RADIO_BUF_SIZE];
-                    write_buf[0] = OpCode::WriteBuffer as u8;
-                    write_buf[1] = offset;
-                    for (i, word) in payload.iter().enumerate() {
-                        write_buf[i + 2] = *word;
-                    }
+                    // let mut write_buf = [0; RADIO_BUF_SIZE];
+                    // write_buf[0] = OpCode::WriteBuffer as u8;
+                    // write_buf[1] = offset;
+                    // for (i, word) in payload.iter().enumerate() {
+                    //     write_buf[i + 2] = *word;
+                    // }
                     self.interface.write(&write_buf[..2 + payload_len])?;
                 }
 
@@ -903,7 +920,7 @@ impl Radio {
                 // 14. Clear the IRQ TxDone flag. Ie: radio.clear_irq(&[Irq::TxDone, Irq::Timeout])?;
                 // (Handled in firmware GPIO ISR)
             }
-            RadioConfig::R8x(config) => {
+            RadioConfig::R8x(_config) => {
                 // todo: Where do we set the frequency? Adding here for now.
                 self.set_rf_freq()?;
 
@@ -923,12 +940,12 @@ impl Radio {
 
                 // todo: Having trouble with SPI DMA writes (but reads work) Skipping for now; blocking.
                 {
-                    let mut write_buf = [0; RADIO_BUF_SIZE];
-                    write_buf[0] = OpCode::WriteBuffer as u8;
-                    write_buf[1] = offset;
-                    for (i, word) in payload.iter().enumerate() {
-                        write_buf[i + 2] = *word;
-                    }
+                    // let mut write_buf = [0; RADIO_BUF_SIZE];
+                    // write_buf[0] = OpCode::WriteBuffer as u8;
+                    // write_buf[1] = offset;
+                    // for (i, word) in payload.iter().enumerate() {
+                    //     write_buf[i + 2] = *word;
+                    // }
                     self.interface.write(&write_buf[..2 + payload_len])?;
                 }
 
@@ -989,7 +1006,7 @@ impl Radio {
                 config.packet_params.payload_len = max_payload_len;
             }
             RadioConfig::R8x(ref mut config) => {
-                config.rf_freq = rf_freq as u64;
+                config.rf_freq = rf_freq;
                 config.packet_params.payload_len = max_payload_len;
             }
         }
@@ -1213,19 +1230,19 @@ impl Radio {
 
             // todo TS. It seems DMA may be at the core of your demons.
             // let mut test_buf = unsafe { &mut READ_BUF };
-            // let mut test_buf = &mut self.interface.read_buf;
+            let mut test_buf = self.interface.read_buf;
             //
-            // test_buf[0] = OpCode::ReadBuffer as u8;
-            // test_buf[1] = buf_status.rx_start_buf_pointer;
-            // test_buf[2] = 0;
-            //
-            // if self
-            //     .interface
-            //     .read(&mut test_buf[..3 + buf_status.payload_len as usize])
-            //     .is_err()
-            // {
-            //     println!("Error reading the buffer");
-            // }
+            test_buf[0] = OpCode::ReadBuffer as u8;
+            test_buf[1] = buf_status.rx_start_buf_pointer;
+            test_buf[2] = 0;
+
+            if self
+                .interface
+                .read(&mut test_buf[..3 + buf_status.payload_len as usize])
+                .is_err()
+            {
+                println!("Error reading the buffer");
+            }
         }
 
         // (Process the payload in the SPI Rx complete ISR)
@@ -1250,13 +1267,13 @@ impl Radio {
     /// 6x DS, section 13.5.3. This contains useful link stats from a received message. (LoRa)
     /// 8x: DS, section 11.8.2.Differen, including more fields, eg for BLE, FLRC etc. LoRa uses
     /// status, rssiSync and snr only. I think we can use the same code for both.
-    pub fn get_packet_status(&mut self) -> Result<RxPacketStatusLora6x, RadioError> {
+    pub fn get_packet_status(&mut self) -> Result<RxPacketStatusLora, RadioError> {
         let mut buf = [OpCode::GetPacketStatus as u8, 0, 0, 0, 0];
         self.interface.read(&mut buf)?;
 
         // Raw data, to make passing over the wire/air more compact. Convert using scaler/signed types
         // prior to display or use.
-        Ok(RxPacketStatusLora6x {
+        Ok(RxPacketStatusLora {
             // todo: Which RSSI should we use?
             status: buf[1],
             rssi: buf[2],
