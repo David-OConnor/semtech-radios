@@ -1008,7 +1008,7 @@ impl Radio {
     /// (8x) 14.4.3
     /// todo: COnsider also using the SetDutyCycle sniff mode.
     pub fn receive(&mut self, max_payload_len: u8, rf_freq: u32) -> Result<(), RadioError> {
-        // Separate to prevent borrow errors.
+        // Config access is separate to prevent borrow errors.
         match &mut self.config {
             RadioConfig::R6x(ref mut config) => {
                 config.rf_freq = rf_freq;
@@ -1074,15 +1074,6 @@ impl Radio {
 
                 // 1. Configure the DIOs and Interrupt sources (IRQs) by using command:
                 // SetDioIrqParams(irqMask,dio1Mask,dio2Mask,dio3Mask)
-                // In a typical LoRa® Rx operation the user could select one or several of the following IRQ sources:
-                // •RxDone to indicate a packet has been detected. This IRQ does not mean that the packet is valid (size or CRC correct).
-                // The user must check the packet status to ensure that a valid packed has been received.
-                // •PreambleValid is available to indicate a vaid loRa preamble has been detected.
-                // •HeaderValid (and HeaderError) are available to indicate whether a valid packet header has been received.
-                // •SyncWordValid to indicate that a Sync Word has been detected.
-                // •CrcError to indicate that the received packet has a CRC error
-                // •RxTxTimeout to indicate that no packet has been detected in a given time frame defined by timeout parameter in the
-                // SetRx() command.
 
                 self.set_irq(&[], &[Irq::RxDone, Irq::Timeout])?; // DIO3.
 
@@ -1196,7 +1187,12 @@ impl Radio {
         // The IRQ RxDone means that a packet has been received but the CRC could be wrong: the user must check the CRC before
         // validating the packet.
         if cmd_status == CommandStatus::DataAvailable {
-            let mut irq_status_buf = [OpCode::GetIrqStatus as u8, 0, 0, 0];
+            let op_code = match self.config {
+                RadioConfig::R6x(_) => OpCode::GetIrqStatus as u8,
+                RadioConfig::R8x(_) => OpCode::GetIrqStatus.val_8x(),
+            };
+
+            let mut irq_status_buf = [op_code, 0, 0, 0];
             self.interface.read(&mut irq_status_buf)?;
             let irq_status = u16::from_be_bytes([irq_status_buf[2], irq_status_buf[3]]);
             if irq_status & (0b11 << 5) != 0 {
@@ -1221,6 +1217,7 @@ impl Radio {
         if let RadioConfig::R6x(_) = self.config {
             self.implicit_header_to_workaround()?; // See eratta, section 15.3.
 
+            // No device errors opcode on 8x.
             let device_errors = self.get_device_errors()?;
             if device_errors != 0 {
                 println!("\nDevice error: {}", device_errors);
@@ -1339,18 +1336,43 @@ impl Radio {
 
     /// DS, section 13.3.1. Setup DIO1 and DIO3 IRQs, which can be used with the MCU's GPU interrupts.
     /// We assume DIO2 controls the Tx/Rx switch.
+    ///
+    /// Sx128x DS:
+    /// "In a typical LoRa® Rx operation the user could select one or several of the following IRQ sources:
+    /// •RxDone to indicate a packet has been detected. This IRQ does not mean that the packet is valid (size or CRC correct).
+    /// The user must check the packet status to ensure that a valid packed has been received.
+    /// •PreambleValid is available to indicate a vaid loRa preamble has been detected.
+    /// •HeaderValid (and HeaderError) are available to indicate whether a valid packet header has been received.
+    /// •SyncWordValid to indicate that a Sync Word has been detected.
+    /// •CrcError to indicate that the received packet has a CRC error
+    /// •RxTxTimeout to indicate that no packet has been detected in a given time frame defined by timeout parameter in the
+    /// SetRx() command."
     fn set_irq(&mut self, dio1: &[Irq], dio3: &[Irq]) -> Result<(), RadioError> {
         let mut irq_word: u16 = 0;
         let mut dio1_word: u16 = 0;
         let mut dio3_word: u16 = 0;
 
-        for irq in dio1 {
-            irq_word |= 1 << (*irq as u16);
-            dio1_word |= 1 << (*irq as u16);
-        }
-        for irq in dio3 {
-            irq_word |= 1 << (*irq as u16);
-            dio3_word |= 1 << (*irq as u16);
+        match self.config {
+            RadioConfig::R6x(_) => {
+                for irq in dio1 {
+                    irq_word |= 1 << (*irq as u16);
+                    dio1_word |= 1 << (*irq as u16);
+                }
+                for irq in dio3 {
+                    irq_word |= 1 << (*irq as u16);
+                    dio3_word |= 1 << (*irq as u16);
+                }
+            }
+            RadioConfig::R8x(_) => {
+                for irq in dio1 {
+                    irq_word |= 1 << (irq.val_8x());
+                    dio1_word |= 1 << (irq.val_8x());
+                }
+                for irq in dio3 {
+                    irq_word |= 1 << (irq.val_8x());
+                    dio3_word |= 1 << (irq.val_8x());
+                }
+            }
         }
 
         let irq_bytes = irq_word.to_be_bytes();
@@ -1368,7 +1390,7 @@ impl Radio {
             irq_bytes[1],
             dio1_bytes[0],
             dio1_bytes[1],
-            0, // We don't use DIO2; it's configured as Rx/Tx switch.
+            0, // We don't use DIO2; it's configured as Rx/Tx switch on SX126x.
             0,
             dio3_bytes[0],
             dio3_bytes[1],
@@ -1399,12 +1421,20 @@ impl Radio {
         // We use a single 16-bit word, with bits at the various values.
         let mut irq_word: u16 = 0;
         for irq in irqs {
-            irq_word |= 1 << (*irq as u16);
+            let irq_val = match self.config {
+                RadioConfig::R6x(_) => *irq as u16,
+                RadioConfig::R8x(_) => irq.val_8x(),
+            };
+            irq_word |= 1 << irq_val;
         }
 
         let bytes = irq_word.to_be_bytes();
-        self.interface
-            .write(&[OpCode::ClearIrqStatus as u8, bytes[0], bytes[1]])
+
+        let op_code = match self.config {
+            RadioConfig::R6x(_) => OpCode::ClearIrqStatus as u8,
+            RadioConfig::R8x(_) => OpCode::ClearIrqStatus.val_8x(),
+        };
+        self.interface.write(&[op_code, bytes[0], bytes[1]])
     }
 
     /// 6x: 13.5.1
