@@ -70,7 +70,7 @@ pub enum OpCode {
     GetRxBufferStatus = 0x13,
     GetPacketStatus = 0x14,
     GetRSSIInst = 0x15,
-    GetStats = 0x10,
+    GetStatistics = 0x10,
     ResetStats = 0x00,
     SetDioIrqParams = 0x08,
     GetIrqStatus = 0x12,

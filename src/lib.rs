@@ -15,7 +15,7 @@ use defmt::println;
 use hal::dma::DmaChannel;
 
 use crate::{
-    params::{LoraBandwidth6x, ModulationParamsLora6x, ModulationParamsLora8x, PacketParamsLora},
+    params::{ModulationParamsLora6x, ModulationParamsLora8x, PacketParamsLora},
     shared::{OpCode, RadioError, RadioError::UnexpectedStatus, RadioPins, Register, Register6x},
     spi_interface::{Interface, Spi_, RADIO_BUF_SIZE},
 };
@@ -47,7 +47,7 @@ pub enum PacketType {
     /// 8x only.
     Ranging = 2,
     /// Long Range FHSS (FLRC on 8x)
-    LrFhss = 3,
+    LrFhssFlrc = 3,
     /// 8x only.
     Ble = 4,
 }
@@ -552,7 +552,7 @@ impl Radio {
                 // todo: Of note, the DS example for this seems wrong... Would like to close the loop on that.
 
                 self.interface.write(&[
-                    OpCode::SetRfFrequency as u8,
+                    OpCode::SetRfFrequency.val_8x(),
                     rf_freq_raw[0],
                     rf_freq_raw[1],
                     rf_freq_raw[2],
@@ -565,17 +565,17 @@ impl Radio {
     /// 6x DS, section 13.4.5. Parameters depend on the packet type.
     /// 8x DS: Section 11.7.7
     pub fn set_mod_params(&mut self) -> Result<(), RadioError> {
-        let mut p1 = 0;
-        let mut p2 = 0;
-        let mut p3 = 0;
-        let mut p4 = 0;
-        let p5 = 0;
-        let p6 = 0;
-        let p7 = 0;
-        let p8 = 0;
-
         match &self.config {
             RadioConfig::R6x(config) => {
+                let mut p1 = 0;
+                let mut p2 = 0;
+                let mut p3 = 0;
+                let mut p4 = 0;
+                let p5 = 0;
+                let p6 = 0;
+                let p7 = 0;
+                let p8 = 0;
+
                 match config.packet_type {
                     PacketType::Gfsk => {
                         unimplemented!()
@@ -586,7 +586,7 @@ impl Radio {
                         p3 = config.modulation_params.coding_rate as u8;
                         p4 = config.modulation_params.low_data_rate_optimization as u8;
                     }
-                    PacketType::LrFhss => {
+                    PacketType::LrFhssFlrc => {
                         // todo: FHSS on 8x
                         unimplemented!()
                     }
@@ -608,6 +608,10 @@ impl Radio {
                 ])
             }
             RadioConfig::R8x(config) => {
+                let mut p1 = 0;
+                let mut p2 = 0;
+                let mut p3 = 0;
+
                 match config.packet_type {
                     PacketType::Gfsk => {
                         unimplemented!()
@@ -617,14 +621,12 @@ impl Radio {
                         p2 = config.modulation_params.mod_bandwidth as u8;
                         p3 = config.modulation_params.coding_rate as u8;
                     }
-                    PacketType::LrFhss => {
-                        // todo: Implement for fhss
+                    PacketType::LrFhssFlrc => {
+                        // todo: Implement for FLRC
                         unimplemented!()
                     }
                     _ => unimplemented!(),
                 }
-
-                // todo: Confirm we can ignore unused params.
 
                 self.interface
                     .write(&[OpCode::SetModulationParams.val_8x(), p1, p2, p3])
@@ -666,7 +668,7 @@ impl Radio {
                         p5 = config.packet_params.crc_enabled.val_sx126x();
                         p6 = config.packet_params.invert_iq.val_sx126x();
                     }
-                    PacketType::LrFhss => {
+                    PacketType::LrFhssFlrc => {
                         // todo: Implement for 8x: FHSS.
                         unimplemented!()
                     }
@@ -701,8 +703,6 @@ impl Radio {
                 let mut p5 = 0;
                 let mut p6 = 0;
                 let p7 = 0;
-                let _p8 = 0;
-                let _p9 = 0;
 
                 match config.packet_type {
                     PacketType::Gfsk => {
@@ -724,8 +724,8 @@ impl Radio {
                         p4 = config.packet_params.crc_enabled.val_sx128x();
                         p5 = config.packet_params.invert_iq.val_sx128x();
                     }
-                    PacketType::LrFhss => {
-                        // todo: Implement this for sx1280: FHSS.
+                    PacketType::LrFhssFlrc => {
+                        // todo: Implement this for sx1280: FLRC
                         unimplemented!()
                     }
                     _ => unimplemented!(), // BLE and ranging.
@@ -785,26 +785,30 @@ impl Radio {
     pub fn set_op_mode(&mut self, mode: OperatingMode) -> Result<(), RadioError> {
         match mode {
             // todo: This behavior is 6x only. 8x is different (?)
-            OperatingMode::Sleep(cfg) => self
-                .interface
-                // todo: Wake-up on RTC A/R.
-                .write_op_word(OpCode::SetSleep, (cfg as u8) << 2),
+            OperatingMode::Sleep(cfg) => {
+                self.interface
+                    // todo: Wake-up on RTC A/R.
+                    .write_op_word(OpCode::SetSleep, (cfg as u8) << 2)
+            }
 
             OperatingMode::StbyRc => self.interface.write_op_word(OpCode::SetStandby, 0),
             OperatingMode::StbyOsc => self.interface.write_op_word(OpCode::SetStandby, 1),
             OperatingMode::Fs => self.interface.write(&[OpCode::SetFS as u8]),
             OperatingMode::Tx(timeout) => {
-                let to_bytes = time_bytes_6x(timeout);
-                self.interface
-                    .write(&[OpCode::SetTx as u8, to_bytes[0], to_bytes[1], to_bytes[2]])
-            }
-            OperatingMode::Rx(timeout) => {
-                let to_bytes = match self.config {
-                    RadioConfig::R6x(_) => time_bytes_6x(timeout),
-                    RadioConfig::R8x(_) => time_bytes_8x(timeout),
+                let (op_code, to_bytes) = match self.config {
+                    RadioConfig::R6x(_) => (OpCode::SetTx as u8, time_bytes_6x(timeout)),
+                    RadioConfig::R8x(_) => (OpCode::SetTx.val_8x(), time_bytes_8x(timeout)),
                 };
                 self.interface
-                    .write(&[OpCode::SetRx as u8, to_bytes[0], to_bytes[1], to_bytes[2]])
+                    .write(&[op_code, to_bytes[0], to_bytes[1], to_bytes[2]])
+            }
+            OperatingMode::Rx(timeout) => {
+                let (op_code, to_bytes) = match self.config {
+                    RadioConfig::R6x(_) => (OpCode::SetRx as u8, time_bytes_6x(timeout)),
+                    RadioConfig::R8x(_) => (OpCode::SetRx.val_8x(), time_bytes_8x(timeout)),
+                };
+                self.interface
+                    .write(&[op_code, to_bytes[0], to_bytes[1], to_bytes[2]])
             }
         }
     }
@@ -815,10 +819,16 @@ impl Radio {
     pub fn send_payload(&mut self, slice: RangeTo<usize>, rf_freq: u32) -> Result<(), RadioError> {
         // todo: Re-org to avoid ownership problems
         let (mut write_buf, payload_len) = {
+            let op_code = match self.config {
+                RadioConfig::R6x(_) => OpCode::WriteBuffer as u8,
+                RadioConfig::R8x(_) => OpCode::WriteBuffer.val_8x(),
+            };
+
             let offset = 0;
             let payload = &self.interface.write_buf[slice];
             let mut buf = [0; RADIO_BUF_SIZE];
-            buf[0] = OpCode::WriteBuffer as u8;
+            // This is ok to use as u8; same on both rx and tx.
+            buf[0] = op_code;
             buf[1] = offset;
             for (i, word) in payload.iter().enumerate() {
                 buf[i + 2] = *word;
@@ -828,7 +838,6 @@ impl Radio {
         };
 
         // todo: Confirm the same for 8x.
-        let payload_len = payload_len;
         if payload_len > 255 {
             return Err(RadioError::PayloadSize(payload_len));
         }
@@ -1232,7 +1241,12 @@ impl Radio {
             // let mut test_buf = unsafe { &mut READ_BUF };
             let mut test_buf = self.interface.read_buf;
             //
-            test_buf[0] = OpCode::ReadBuffer as u8;
+            let op_code = match self.config {
+                RadioConfig::R6x(_) => OpCode::ReadBuffer as u8,
+                RadioConfig::R8x(_) => OpCode::ReadBuffer.val_8x(),
+            };
+
+            test_buf[0] = op_code;
             test_buf[1] = buf_status.rx_start_buf_pointer;
             test_buf[2] = 0;
 
@@ -1254,7 +1268,11 @@ impl Radio {
     /// in decoding the buffer.
     /// 8x, section 11.8.1 (Same as 6x, other than opcode addr)
     pub fn get_rx_buffer_status(&mut self) -> Result<RxBufferStatus, RadioError> {
-        let mut buf = [OpCode::GetRxBufferStatus as u8, 0, 0, 0];
+        let op_code = match self.config {
+            RadioConfig::R6x(_) => OpCode::GetRxBufferStatus as u8,
+            RadioConfig::R8x(_) => OpCode::GetRxBufferStatus.val_8x(),
+        };
+        let mut buf = [op_code, 0, 0, 0];
         self.interface.read(&mut buf)?;
 
         Ok(RxBufferStatus {
@@ -1268,7 +1286,12 @@ impl Radio {
     /// 8x: DS, section 11.8.2.Differen, including more fields, eg for BLE, FLRC etc. LoRa uses
     /// status, rssiSync and snr only. I think we can use the same code for both.
     pub fn get_packet_status(&mut self) -> Result<RxPacketStatusLora, RadioError> {
-        let mut buf = [OpCode::GetPacketStatus as u8, 0, 0, 0, 0];
+        let op_code = match self.config {
+            RadioConfig::R6x(_) => OpCode::GetPacketStatus as u8,
+            RadioConfig::R8x(_) => OpCode::GetPacketStatus.val_8x(),
+        };
+
+        let mut buf = [op_code, 0, 0, 0, 0];
         self.interface.read(&mut buf)?;
 
         // Raw data, to make passing over the wire/air more compact. Convert using scaler/signed types
@@ -1284,7 +1307,12 @@ impl Radio {
 
     /// DS, section 13.5.4. todo: When would we use this over packet status?
     pub fn get_rssi_inst(&mut self) -> Result<i8, RadioError> {
-        let mut buf = [OpCode::GetRSSIInst as u8, 0, 0];
+        let op_code = match self.config {
+            RadioConfig::R6x(_) => OpCode::GetRSSIInst as u8,
+            RadioConfig::R8x(_) => OpCode::GetRSSIInst.val_8x(),
+        };
+
+        let mut buf = [op_code, 0, 0];
         self.interface.read(&mut buf)?;
 
         Ok(-(buf[2] as i8) / 2)
@@ -1293,7 +1321,12 @@ impl Radio {
     /// 6x only. DS, section 13.5.5
     /// todo: Impl reset as well.
     pub fn get_statistics(&mut self) -> Result<RxStatistics6x, RadioError> {
-        let mut buf = [OpCode::GetStats as u8, 0, 0, 0, 0, 0, 0, 0];
+        let op_code = match self.config {
+            RadioConfig::R6x(_) => OpCode::GetStatistics as u8,
+            RadioConfig::R8x(_) => panic!("GetStatistics unavailabe on sx128x"),
+        };
+
+        let mut buf = [op_code, 0, 0, 0, 0, 0, 0, 0];
         self.interface.read(&mut buf)?;
 
         Ok(RxStatistics6x {
@@ -1324,8 +1357,13 @@ impl Radio {
         let dio1_bytes = dio1_word.to_be_bytes();
         let dio3_bytes = dio3_word.to_be_bytes();
 
+        let op_code = match self.config {
+            RadioConfig::R6x(_) => OpCode::SetDioIrqParams as u8,
+            RadioConfig::R8x(_) => OpCode::SetDioIrqParams.val_8x(),
+        };
+
         self.interface.write(&[
-            OpCode::SetDioIrqParams as u8,
+            op_code,
             irq_bytes[0],
             irq_bytes[1],
             dio1_bytes[0],
@@ -1370,13 +1408,16 @@ impl Radio {
     }
 
     /// 6x: 13.5.1
-    /// 8x: 11.3. Note: (Is this applicable more broadly?) on 8x, it appears the return is shifted left by one vice 6x.
-    /// todo: QC on 86...
+    /// 8x: 11.3. (Similar, but at different indices.
     pub fn get_status(&mut self) -> Result<(OperatingModeRead, CommandStatus), RadioError> {
-        let mut buf = [OpCode::GetStatus as u8, 0];
+        let mut buf = [OpCode::GetStatus as u8, 0]; // This is OK; same OpCode on 6x and 8x.
         self.interface.read(&mut buf)?;
 
-        let om = (buf[1] >> 4) & 0b111;
+        let (om, c_s) = match self.config {
+            RadioConfig::R6x(_) => ((buf[1] >> 4) & 0b111, (buf[1] >> 1) & 0b111),
+            RadioConfig::R8x(_) => ((buf[0] >> 5) & 0b111, (buf[0] >> 2) & 0b111),
+        };
+
         let operating_mode = match om {
             2 => OperatingModeRead::StbyRc,
             3 => OperatingModeRead::StbyOsc,
@@ -1387,22 +1428,26 @@ impl Radio {
                 println!("1 returned for operating mode. Investigate (\"RFU\" in DS; the future is now.)");
                 OperatingModeRead::Fs // bogus
             }
-            _ => return Err(RadioError::UnexpectedStatus(om)),
+            _ => return Err(UnexpectedStatus(om)),
         };
 
-        let status = (buf[1] >> 1) & 0b111;
-        let command_status = match status {
+        let command_status = match c_s {
+            1 => {
+                match self.config {
+                    RadioConfig::R6x(_) => {
+                        println!("1 returned for command status. Investigate (\"RFU\" in DS; the future is now.)");
+                        CommandStatus::FailureToExecuteCommand // bogus
+                                                               // todo: This should be removed in favof of unexpected status.
+                    }
+                    RadioConfig::R8x(_) => CommandStatus::CommandProcessSuccess8x,
+                }
+            }
             2 => CommandStatus::DataAvailable,
             3 => CommandStatus::CommandTimeout,
             4 => CommandStatus::CommandProcessingError,
             5 => CommandStatus::FailureToExecuteCommand,
             6 => CommandStatus::CommandTxDone,
-            1 => {
-                // todo: This should be removed in favof of unexpected status.
-                println!("1 returned for command status. Investigate (\"RFU\" in DS; the future is now.)");
-                CommandStatus::FailureToExecuteCommand // bogus
-            }
-            _ => return Err(RadioError::UnexpectedStatus(status)),
+            _ => return Err(UnexpectedStatus(c_s)),
         };
 
         Ok((operating_mode, command_status))

@@ -22,7 +22,7 @@ pub const RADIO_BUF_SIZE: usize = 255;
 const AHB_FREQ: u32 = 170_000_000; // todo: temp hard-coded
 const DMA_PERIPH: DmaPeriph = DmaPeriph::Dma1; // todo: temp hard-coded
 
-use crate::shared::{RadioPins, Register, Register6x, Register8x};
+use crate::shared::{RadioPins, Register};
 
 pub struct Interface {
     pub spi: Spi_,
