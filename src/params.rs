@@ -158,9 +158,9 @@ impl Default for ModulationParamsLora6x {
         Self {
             mod_bandwidth: LoraBandwidth6x::BW_500,
             spreading_factor: LoraSpreadingFactor::SF5,
-            /// "In normal conditions a
-            /// factor of 4/5 provides the best trade-off; in the presence of strong interferers a higher
-            /// coding rate may be used."
+            // "In normal conditions a
+            // factor of 4/5 provides the best trade-off; in the presence of strong interferers a higher
+            // coding rate may be used."
             coding_rate: LoraCodingRate::CR_4_5,
             low_data_rate_optimization: LoraLdrOptimization::Disabled,
         }

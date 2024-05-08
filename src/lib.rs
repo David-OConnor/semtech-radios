@@ -18,7 +18,7 @@ use hal::dma::DmaChannel;
 
 use crate::{
     params::{ModulationParamsLora6x, ModulationParamsLora8x, PacketParamsLora},
-    shared::{OpCode, RadioError, RadioError::UnexpectedStatus, RadioPins, Register, Register6x},
+    shared::{OpCode, RadioError, RadioPins, Register, Register6x},
     spi_interface::{Interface, Spi_, RADIO_BUF_SIZE},
 };
 
@@ -139,17 +139,18 @@ impl Irq {
 
 /// Table 13-21
 /// These don't take into account the external PA, if applicable.
+/// Note that the values are listed for sx1262. They are hard-coded for high power PA selection.
 #[repr(u8)] // For storing in configs.
 #[derive(Clone, Copy)]
 pub enum OutputPower6x {
     /// 25mW
-    Db14,
+    Db14 = 0x0e,
     /// 50mW
-    Db17,
+    Db17 = 0x11,
     /// 100mW
-    Db20,
+    Db20 = 0x14,
     /// 158mW
-    Db22,
+    Db22 = 0x16,
 }
 
 impl Default for OutputPower6x {
@@ -350,14 +351,15 @@ pub struct RadioConfig8x {
     pub rx_timeout: f32,
     pub fallback_mode: FallbackMode,
     pub ramp_time: RampTime8x,
-    // pub lora_network: LoraNetwork,
+    /// In dBm. Ranges from -18 to +13. Defaults to max power.
+    pub output_power: i8, // pub lora_network: LoraNetwork,
 }
 
 impl Default for RadioConfig8x {
     fn default() -> Self {
         Self {
             packet_type: PacketType::Lora,
-            rf_freq: 4_200_000_000,
+            rf_freq: 2_400_000_000,
             dc_dc_enabled: true,
             modulation_params: Default::default(),
             packet_params: Default::default(),
@@ -365,7 +367,7 @@ impl Default for RadioConfig8x {
             rx_timeout: 0.,
             fallback_mode: FallbackMode::StdbyRc,
             ramp_time: RampTime8x::R10, // todo: What should this be?
-                                        // lora_network: LoraNetwork::Private,
+            output_power: 13,
         }
     }
 }

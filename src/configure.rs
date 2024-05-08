@@ -253,10 +253,11 @@ impl Radio {
     pub(crate) fn set_tx_params(&mut self) -> Result<(), RadioError> {
         let (power, ramp_time) = match &self.config {
             RadioConfig::R6x(config) => {
-                (0x16, config.ramp_time as u8) // Max power.
+                (config.output_power as u8, config.ramp_time as u8) // Max power.
             }
             RadioConfig::R8x(config) => {
-                (0x31, config.ramp_time as u8) // Max power.
+                assert!(config.output_power >= -18 && config.output_power <= 13);
+                ((config.output_power + 18) as u8, config.ramp_time as u8) // Max power.
             }
         };
 
