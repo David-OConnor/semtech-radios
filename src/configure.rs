@@ -1,5 +1,7 @@
 //! Code relating to configuring the radio.
 
+use defmt::println;
+
 use crate::{
     shared::{OpCode, RadioError},
     time_bytes_6x, time_bytes_8x, OperatingMode, PacketType, Radio, RadioConfig, FREQ_CONST_6X,
@@ -8,13 +10,12 @@ use crate::{
 
 impl Radio {
     /// 6x: See DS, section 13.4.1 for this computation.
-    /// 8xx: See DS, section 11.7.3.
+    /// 8x: See DS, section 11.7.3.
     pub(crate) fn set_rf_freq(&mut self) -> Result<(), RadioError> {
         match &self.config {
             RadioConfig::R6x(config) => {
                 // We convert to u64 to prevent an overflow.
-                let rf_freq_raw =
-                    ((config.rf_freq as f32 / FREQ_CONST_6X as f32) as u32).to_be_bytes();
+                let rf_freq_raw = ((config.rf_freq as f32 / FREQ_CONST_6X) as u32).to_be_bytes();
 
                 self.interface.write(&[
                     OpCode::SetRfFrequency as u8,
@@ -30,8 +31,7 @@ impl Radio {
                 // defines the Tx frequency. The Rx frequency is down-converted to the IF. The IF is set by default to 1.3 MHz. This
                 // configuration is handled internally by the transceiver, there is no need for the user to take this offset into account when
                 // configuring SetRfFrequency. This must be called after SetPacket type."
-                let rf_freq_raw =
-                    ((config.rf_freq as f32 / FREQ_CONST_8X as f32) as u32).to_be_bytes();
+                let rf_freq_raw = ((config.rf_freq as f32 / FREQ_CONST_8X) as u32).to_be_bytes();
                 // todo: Of note, the DS example for this seems wrong... Would like to close the loop on that.
 
                 self.interface.write(&[

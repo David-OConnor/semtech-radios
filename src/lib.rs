@@ -2,7 +2,7 @@
 
 #![no_std]
 
-use core::ops::RangeTo;
+use core::ops::Range;
 
 mod configure;
 mod eratta;
@@ -29,13 +29,13 @@ use crate::{
 /// Note: On 8x, we can choose from four of these. We use the same one as 6x, always, for now.
 const TIMING_FACTOR_MS_6X: f32 = 0.015_625;
 
-const F_XTAL_6X: u64 = 32_000_000; // Oscillator frequency in Mhz.
-const F_XTAL_8X: u64 = 52_000_000; // Oscillator frequency in Mhz.
-                                   // The radio's maximum data buffer size.
+const F_XTAL_6X: f32 = 32_000_000.; // Oscillator frequency in Mhz.
+const F_XTAL_8X: f32 = 52_000_000.; // Oscillator frequency in Mhz.
+                                    // The radio's maximum data buffer size.
 
 // These constants are pre-computed
-const FREQ_CONST_6X: u64 = F_XTAL_6X / (1 << 25);
-const FREQ_CONST_8X: u64 = F_XTAL_8X / (1 << 18);
+const FREQ_CONST_6X: f32 = F_XTAL_6X / (1 << 25) as f32;
+const FREQ_CONST_8X: f32 = F_XTAL_8X / (1 << 18) as f32;
 
 /// 6x DS, 13.4.2. Table 13-38.  The switch from one frame to another must be done in STDBY_RC mode.
 /// 8x: Table 11-42.
@@ -99,7 +99,7 @@ pub enum RampTime8x {
 /// 6x: DS, Table 13-29. repr as u16, since we use the values to bit-mask a 16-bit integer.
 /// 8x: DS, Table 11-73. repr as u16, since we use the values to bit-mask a 16-bit integer.
 #[repr(u16)]
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, defmt::Format)]
 #[allow(dead_code)]
 pub enum Irq {
     TxDone = 0,
@@ -400,6 +400,9 @@ impl Radio {
         tx_ch: DmaChannel,
         rx_ch: DmaChannel,
     ) -> Result<Self, RadioError> {
+        let tx_addr = 0;
+        let rx_addr = 0;
+
         let r8x = if let RadioConfig::R8x(_) = config {
             true
         } else {
@@ -408,7 +411,6 @@ impl Radio {
 
         let mut result = Self {
             config,
-            // config_8x,
             interface: Interface {
                 spi,
                 pins,
@@ -420,7 +422,6 @@ impl Radio {
                 rx_payload_start: 0,
                 r8x,
             },
-            // operating_mode: OperatingMode::StbyOsc,
         };
 
         result.interface.reset();
@@ -499,6 +500,10 @@ impl Radio {
 
                 // Note: Not required if private due to the reset value.
                 result.set_sync_word(network)?;
+
+                result
+                    .interface
+                    .write(&[OpCode::SetBufferBaseAddress as u8, tx_addr, rx_addr])?;
             }
             RadioConfig::R8x(ref config) => {
                 // prevents borrow mut error
@@ -516,14 +521,14 @@ impl Radio {
                     .write_op_word(OpCode::SetTxFallbackMode, fallback as u8)?;
 
                 result.set_tx_params()?;
+
+                result.interface.write(&[
+                    OpCode::SetBufferBaseAddress.val_8x(),
+                    tx_addr,
+                    rx_addr,
+                ])?;
             }
         }
-
-        let tx_addr = 0;
-        let rx_addr = 0;
-        result
-            .interface
-            .write(&[OpCode::SetBufferBaseAddress as u8, tx_addr, rx_addr])?;
 
         Ok(result)
     }
@@ -531,7 +536,7 @@ impl Radio {
     /// (6x) DS, section 14.2. Frequency is set here and in receive initiation, for use with frequency hopping.
     /// (8x) DS, section 14.4.22.
     // pub fn send_payload(&mut self, payload: &[u8], rf_freq: u32) -> Result<(), RadioError> {
-    pub fn send_payload(&mut self, slice: RangeTo<usize>, rf_freq: u32) -> Result<(), RadioError> {
+    pub fn send_payload(&mut self, slice: Range<usize>, rf_freq: u32) -> Result<(), RadioError> {
         // todo: Re-org to avoid ownership problems
         let (mut write_buf, payload_len) = {
             let op_code = match self.config {
@@ -748,7 +753,6 @@ impl Radio {
                 //     .write_op_word(OpCode::SetPacketType, config.packet_type as u8)?;
 
                 // 3.Define the RF frequency with the command SetRfFrequency(...)
-
                 self.set_rf_freq()?;
 
                 // 4. Define where the data will be stored inside the data buffer in Rx with the command SetBufferBaseAddress(...)
@@ -1077,6 +1081,10 @@ impl Radio {
             RadioConfig::R8x(_) => OpCode::ClearIrqStatus.val_8x(),
         };
         self.interface.write(&[op_code, bytes[0], bytes[1]])
+    }
+
+    pub fn get_irq_status(&mut self) -> Result<u8, RadioError> {
+        self.interface.read_op_word(OpCode::GetIrqStatus)
     }
 }
 
