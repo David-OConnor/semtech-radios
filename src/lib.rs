@@ -975,7 +975,7 @@ impl Radio {
                 println!("Error reading the buffer");
             }
 
-            self.interface.read_buf[..payload_len].copy_from_slice(&test_buf[..payload_len])
+            self.interface.read_buf[..payload_len + 3].copy_from_slice(&test_buf[..payload_len + 3])
         }
 
         // (Process the payload in the SPI Rx complete ISR)
