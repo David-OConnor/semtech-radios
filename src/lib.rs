@@ -535,30 +535,27 @@ impl Radio {
 
     /// (6x) DS, section 14.2. Frequency is set here and in receive initiation, for use with frequency hopping.
     /// (8x) DS, section 14.4.22.
-    // pub fn send_payload(&mut self, payload: &[u8], rf_freq: u32) -> Result<(), RadioError> {
-    pub fn send_payload(&mut self, slice: Range<usize>, rf_freq: u32) -> Result<(), RadioError> {
-        // todo: Re-org to avoid ownership problems
-        let (mut write_buf, payload_len) = {
-            let op_code = match self.config {
-                RadioConfig::R6x(_) => OpCode::WriteBuffer as u8,
-                RadioConfig::R8x(_) => OpCode::WriteBuffer.val_8x(),
-            };
+    pub fn send_payload(&mut self, payload: &[u8], rf_freq: u32) -> Result<(), RadioError> {
+        let payload_len = payload.len();
 
-            let offset = 0;
-            let payload = &self.interface.write_buf[slice];
-            let mut buf = [0; RADIO_BUF_SIZE];
-            // This is ok to use as u8; same on both rx and tx.
-            buf[0] = op_code;
-            buf[1] = offset;
-            for (i, word) in payload.iter().enumerate() {
-                buf[i + 2] = *word;
-            }
-
-            (buf, payload.len())
+        let op_code = match self.config {
+            RadioConfig::R6x(_) => OpCode::WriteBuffer as u8,
+            RadioConfig::R8x(_) => OpCode::WriteBuffer.val_8x(),
         };
 
-        // todo: Confirm the same for 8x.
-        if payload_len > 255 {
+        let offset = 0;
+
+        self.interface.write_buf[0] = op_code;
+        self.interface.write_buf[1] = offset;
+        for (i, word) in payload.iter().enumerate() {
+            self.interface.write_buf[i + 2] = *word;
+        }
+
+        // todo: This duplicated buffer prevents borrowed errors. Remove when we change to DMA.
+        let mut write_buf = [0; RADIO_BUF_SIZE];
+        write_buf[..payload_len + 2].copy_from_slice(&self.interface.write_buf[..payload_len + 2]);
+
+        if payload_len > RADIO_BUF_SIZE {
             return Err(RadioError::PayloadSize(payload_len));
         }
 
@@ -912,6 +909,7 @@ impl Radio {
             };
 
             let mut irq_status_buf = [op_code, 0, 0, 0];
+
             self.interface.read(&mut irq_status_buf)?;
             let irq_status = u16::from_be_bytes([irq_status_buf[2], irq_status_buf[3]]);
             if irq_status & (0b11 << 5) != 0 {
@@ -954,8 +952,9 @@ impl Radio {
             //     .read_with_payload(buf_status.payload_len, 0)?;
 
             // todo TS. It seems DMA may be at the core of your demons.
-            // let mut test_buf = unsafe { &mut READ_BUF };
-            let mut test_buf = self.interface.read_buf;
+
+            // todo: This duplicate buffer prevents a borrow mut erroro for now. Change once we use DMA.
+            let mut test_buf = [0; RADIO_BUF_SIZE];
             //
             let op_code = match self.config {
                 RadioConfig::R6x(_) => OpCode::ReadBuffer as u8,
@@ -966,13 +965,17 @@ impl Radio {
             test_buf[1] = buf_status.rx_start_buf_pointer;
             test_buf[2] = 0;
 
+            let payload_len = buf_status.payload_len as usize;
+
             if self
                 .interface
-                .read(&mut test_buf[..3 + buf_status.payload_len as usize])
+                .read(&mut test_buf[..3 + payload_len])
                 .is_err()
             {
                 println!("Error reading the buffer");
             }
+
+            self.interface.read_buf[..payload_len].copy_from_slice(&test_buf[..payload_len])
         }
 
         // (Process the payload in the SPI Rx complete ISR)

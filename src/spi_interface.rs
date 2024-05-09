@@ -15,9 +15,8 @@ use crate::{
 
 pub type Spi_ = Spi<SPI1>;
 
-// Note: There's some ambiguity over whether this is 255, or 256, but it needs to fix as a u8 in
-// the max payload len param.
-pub const RADIO_BUF_SIZE: usize = 255;
+// Note: Should be 256.
+pub const RADIO_BUF_SIZE: usize = 256;
 
 const AHB_FREQ: u32 = 170_000_000; // todo: temp hard-coded
 const DMA_PERIPH: DmaPeriph = DmaPeriph::Dma1; // todo: temp hard-coded
