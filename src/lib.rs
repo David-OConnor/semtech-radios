@@ -460,7 +460,7 @@ impl Radio {
 
         // "In a second step, the user should define the modulation
         // parameter according to the chosen protocol with the command SetModulationParams(...)."
-        result.set_mod_params()?;
+        // result.set_mod_params()?;
 
         // Finally, the user should then
         // select the packet format with the command SetPacketParams(...).
@@ -513,8 +513,6 @@ impl Radio {
                 result
                     .interface
                     .write_op_word(OpCode::SetRegulatorMode, dc_dc as u8)?;
-
-                result.set_pa_config()?;
 
                 result
                     .interface
@@ -621,7 +619,7 @@ impl Radio {
 
                 // 8. Define the modulation parameter according to the chosen protocol with the command SetModulationParams(...)1
                 // (set on init)
-                // self.set_mod_params()?;
+                self.set_mod_params()?;
 
                 // 9. Define the frame format to be used with the command SetPacketParams(...)
                 self.set_packet_params()?;

@@ -66,10 +66,12 @@ impl Interface {
         let c = if self.r8x { code.val_8x() } else { code as u8 };
 
         self.pins.cs.set_low();
+
         if self.spi.write(&[c, word]).is_err() {
             self.pins.cs.set_high();
             return Err(RadioError::Spi);
-        };
+        }
+
         self.pins.cs.set_high();
 
         Ok(())

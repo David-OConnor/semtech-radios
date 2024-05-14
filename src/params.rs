@@ -53,7 +53,7 @@ impl LoraSpreadingFactor {
     /// If the Spreading Factor is SF7 or SF-8 then the command WriteRegister( 0x925, 0x37 ) must be used
     /// If the Spreading Factor is SF9, SF10, SF11 or SF12, then the command WriteRegister( 0x925, 0x32 ) must be used
     /// In all cases 0x1 must be written to the Frequency Error Compensation mode register 0x093C"
-    pub fn val_sx128x(&self) -> u8 {
+    pub fn val_8x(&self) -> u8 {
         match self {
             Self::SF5 => 0x50,
             Self::SF6 => 0x60,
@@ -199,13 +199,13 @@ pub enum LoraHeaderType {
 }
 
 impl LoraHeaderType {
-    pub fn val_sx126x(&self) -> u8 {
+    pub fn val_6x(&self) -> u8 {
         match self {
             Self::VariableLength => 0x00,
             Self::FixedLength => 0x01,
         }
     }
-    pub fn val_sx128x(&self) -> u8 {
+    pub fn val_8x(&self) -> u8 {
         match self {
             Self::VariableLength => 0x00,
             Self::FixedLength => 0x80,
@@ -221,14 +221,14 @@ pub enum CrcEnabled {
 }
 
 impl CrcEnabled {
-    pub fn val_sx126x(&self) -> u8 {
+    pub fn val_6x(&self) -> u8 {
         match self {
             Self::Disabled => 0,
             Self::Enabled => 1,
         }
     }
 
-    pub fn val_sx128x(&self) -> u8 {
+    pub fn val_8x(&self) -> u8 {
         match self {
             Self::Disabled => 0,
             Self::Enabled => 0x20,
@@ -244,14 +244,14 @@ pub enum InvertIq {
 }
 
 impl InvertIq {
-    pub fn val_sx126x(&self) -> u8 {
+    pub fn val_6x(&self) -> u8 {
         match self {
             Self::Standard => 0,
             Self::Inverted => 1,
         }
     }
 
-    pub fn val_sx128x(&self) -> u8 {
+    pub fn val_8x(&self) -> u8 {
         match self {
             Self::Standard => 0x40,
             Self::Inverted => 0,

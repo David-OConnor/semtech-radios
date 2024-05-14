@@ -3,7 +3,8 @@
 use defmt::println;
 
 use crate::{
-    shared::{OpCode, RadioError},
+    params::LoraSpreadingFactor,
+    shared::{OpCode, RadioError, Register, Register::Reg8x, Register8x},
     time_bytes_6x, time_bytes_8x, OperatingMode, PacketType, Radio, RadioConfig, FREQ_CONST_6X,
     FREQ_CONST_8X,
 };
@@ -88,7 +89,7 @@ impl Radio {
                     p6,
                     p7,
                     p8,
-                ])
+                ])?;
             }
             RadioConfig::R8x(config) => {
                 let mut p1 = 0;
@@ -100,9 +101,11 @@ impl Radio {
                         unimplemented!()
                     }
                     PacketType::Lora => {
-                        p1 = config.modulation_params.spreading_factor as u8;
+                        p1 = config.modulation_params.spreading_factor.val_8x();
                         p2 = config.modulation_params.mod_bandwidth as u8;
                         p3 = config.modulation_params.coding_rate as u8;
+
+                        println!("LORA CFG 1 {:x} 2 {:x} 3 {:x}", p1, p2, p3);
                     }
                     PacketType::LrFhssFlrc => {
                         // todo: Implement for FLRC
@@ -112,9 +115,23 @@ impl Radio {
                 }
 
                 self.interface
-                    .write(&[OpCode::SetModulationParams.val_8x(), p1, p2, p3])
+                    .write(&[OpCode::SetModulationParams.val_8x(), p1, p2, p3])?;
+
+                // See the note below Table 14-47: This write must be performed after setting mod params
+                // on 8x.
+                let sf_cfg_val = match config.modulation_params.spreading_factor {
+                    LoraSpreadingFactor::SF5 | LoraSpreadingFactor::SF6 => 0x1e,
+                    LoraSpreadingFactor::SF7 | LoraSpreadingFactor::SF8 => 0x37,
+                    _ => 0x32,
+                };
+                self.interface
+                    .write_reg_word(Reg8x(Register8x::SfAdditionalConfiguration), sf_cfg_val)?;
+                self.interface
+                    .write_reg_word(Reg8x(Register8x::FrequencyErrorCorrection), 0x1)?;
             }
         }
+
+        Ok(())
     }
 
     /// Send packet parameters found in the config, to the radio.
@@ -146,10 +163,10 @@ impl Radio {
 
                         p1 = preamble_len[0];
                         p2 = preamble_len[1];
-                        p3 = config.packet_params.header_type.val_sx126x();
+                        p3 = config.packet_params.header_type.val_6x();
                         p4 = config.packet_params.payload_len;
-                        p5 = config.packet_params.crc_enabled.val_sx126x();
-                        p6 = config.packet_params.invert_iq.val_sx126x();
+                        p5 = config.packet_params.crc_enabled.val_6x();
+                        p6 = config.packet_params.invert_iq.val_6x();
                     }
                     PacketType::LrFhssFlrc => {
                         // todo: Implement for 8x: FHSS.
@@ -202,10 +219,10 @@ impl Radio {
                         let preamble_len = ((pble_len_exp & 0xf) << 4) | (pble_len_maint & 0xf);
 
                         p1 = preamble_len;
-                        p2 = config.packet_params.header_type.val_sx128x();
+                        p2 = config.packet_params.header_type.val_8x();
                         p3 = config.packet_params.payload_len;
-                        p4 = config.packet_params.crc_enabled.val_sx128x();
-                        p5 = config.packet_params.invert_iq.val_sx128x();
+                        p4 = config.packet_params.crc_enabled.val_8x();
+                        p5 = config.packet_params.invert_iq.val_8x();
                     }
                     PacketType::LrFhssFlrc => {
                         // todo: Implement this for sx1280: FLRC
