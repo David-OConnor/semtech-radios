@@ -127,8 +127,8 @@ impl Interface {
         Ok(())
     }
 
-    /// Read a single word from a register.
-    pub fn read_reg_word(&mut self, reg: Register) -> Result<u8, RadioError> {
+    /// Common to 8-bit and 16-bit reads.
+    fn read_reg_common(&mut self, reg: Register) -> Result<[u8; 6], RadioError> {
         let r = match reg {
             Register::Reg6x(reg) => reg as u16,
             Register::Reg8x(reg) => reg as u16,
@@ -142,14 +142,14 @@ impl Interface {
 
         let addr_split = shared::split_addr(r);
 
-        let mut read_buf = [0; 5];
+        let mut read_buf = [0; 6];
 
         self.wait_on_busy()?;
 
         self.pins.cs.set_low();
         if self
             .spi
-            .transfer_type2(&[c, addr_split.0, addr_split.1, 0, 0], &mut read_buf)
+            .transfer_type2(&[c, addr_split.0, addr_split.1, 0, 0, 0], &mut read_buf)
             .is_err()
         {
             self.pins.cs.set_high();
@@ -157,7 +157,18 @@ impl Interface {
         };
         self.pins.cs.set_high();
 
-        Ok(read_buf[4])
+        Ok(read_buf)
+    }
+
+    /// Read a single 8-bit word from a register.
+    pub fn read_reg_word(&mut self, reg: Register) -> Result<u8, RadioError> {
+        Ok(self.read_reg_common(reg)?[4])
+    }
+
+    /// Read a single 16-bit word from a register.
+    pub fn read_reg_word_16(&mut self, reg: Register) -> Result<u16, RadioError> {
+        let buf = self.read_reg_common(reg)?;
+        Ok(u16::from_be_bytes([buf[4], buf[5]]))
     }
 
     /// Write a buffer to the radio.

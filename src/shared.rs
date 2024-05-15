@@ -32,6 +32,7 @@ pub enum RadioError {
     Device,
     /// An unacceptable value is configured.
     Config,
+    FirmwareVersion,
     PayloadSize(usize),
     BusyTimeout,
     UnexpectedStatus(u8),
@@ -199,6 +200,7 @@ pub enum Register6x {
 #[repr(u16)]
 /// See DS, table 13-1: Register Table
 pub enum Register8x {
+    FirmwareVersions = 0x153,
     RxGain = 0x891,
     ManualGainSetting = 0x895,
     LnaGainValue = 0x89e,
@@ -221,7 +223,7 @@ pub enum Register8x {
     // SKipping other ranging regs here for now.
     FrequencyErrorCorrection = 0x93C,
     LoraSynchWordA = 0x944,
-    LoraSynchWordB = 0x945, // todo: Typo in DS:? Listed as 0x955.
+    LoraSynchWordB = 0x945,
     FeiByte2 = 0x954,
     FeiByte1 = 0x955,
     FeiByte0 = 0x956,

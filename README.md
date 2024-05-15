@@ -6,7 +6,12 @@
 
 ## Supports the Sx126x (Sub-Ghz) and SX128x (2.4Ghz) LoRa radios
 
-Supports most, but not all features. Designed for interrupt-driven and DMA operations or similar.
+Supports most, but not all features. Designed for interrupt-driven and DMA operations or similar. Supports these radios:
+
+- sx1261
+- sx1262
+- Sx1280
+- Sx1281
 
 Currently hard-coded for [STM32-HAL](https://github.com/David-OConnor/stm32-hal); Will possibly generalize in the
 future.

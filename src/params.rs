@@ -284,7 +284,7 @@ pub struct PacketParamsLora {
 impl Default for PacketParamsLora {
     fn default() -> Self {
         Self {
-            preamble_len: 12,
+            preamble_len: 12, // Recommended in 8x. (Maybe 6x too)
             header_type: LoraHeaderType::VariableLength,
             payload_len: 0, // This is set during transmission.
             crc_enabled: CrcEnabled::Enabled,

@@ -18,7 +18,9 @@ use hal::dma::DmaChannel;
 
 use crate::{
     params::{ModulationParamsLora6x, ModulationParamsLora8x, PacketParamsLora},
-    shared::{OpCode, RadioError, RadioPins, Register, Register6x},
+    shared::{
+        OpCode, OpCode::ReadRegister, RadioError, RadioPins, Register, Register6x, Register8x,
+    },
     spi_interface::{Interface, Spi_, RADIO_BUF_SIZE},
 };
 
@@ -36,6 +38,10 @@ const F_XTAL_8X: f32 = 52_000_000.; // Oscillator frequency in Mhz.
 // These constants are pre-computed
 const FREQ_CONST_6X: f32 = F_XTAL_6X / (1 << 25) as f32;
 const FREQ_CONST_8X: f32 = F_XTAL_8X / (1 << 18) as f32;
+
+// Error in the datasheet?
+const FIRMWARE_VERSION_8X_A: u16 = 0xA9B5;
+const FIRMWARE_VERSION_8X_B: u16 = 0xA9B7;
 
 /// 6x DS, 13.4.2. Table 13-38.  The switch from one frame to another must be done in STDBY_RC mode.
 /// 8x: Table 11-42.
@@ -426,6 +432,16 @@ impl Radio {
 
         result.interface.reset();
 
+        // We use this firmware version as a sanity check.
+        if r8x {
+            let firmware_version = result
+                .interface
+                .read_reg_word_16(Register::Reg8x(Register8x::FirmwareVersions))?;
+            if ![FIRMWARE_VERSION_8X_A, FIRMWARE_VERSION_8X_B].contains(&firmware_version) {
+                return Err(RadioError::FirmwareVersion);
+            }
+        }
+
         // DS, section 9.1:
         //"At power-up or after a reset, the chip goes into STARTUP state, the control of the chip being done by the sleep state
         // machine operating at the battery voltage. The BUSY pin is set to high indicating that the chip is busy and cannot accept a
@@ -436,6 +452,9 @@ impl Radio {
 
         // Note: This is required to change some settings, like packet type.
         result.set_op_mode(OperatingMode::StbyRc)?;
+
+        let status = result.get_status();
+        println!("Status, A: {:?}", status);
 
         // Make sure we're in STDBY_RC mode when setting packet type.
         // "it is mandatory to set the radio protocol using the command SetPacketType(...) as a first
@@ -460,11 +479,20 @@ impl Radio {
 
         // "In a second step, the user should define the modulation
         // parameter according to the chosen protocol with the command SetModulationParams(...)."
-        // result.set_mod_params()?;
+        result.set_mod_params()?;
+
+        let status = result.get_status();
+        println!("Status, B: {:?}", status);
+
+        // todo: Radio is going to failure state when setting packet params on 8x.
+        // todo. Fix this.
 
         // Finally, the user should then
         // select the packet format with the command SetPacketParams(...).
-        result.set_packet_params()?;
+        // result.set_packet_params()?;
+
+        // let status = result.get_status();
+        // println!("Status, C: {:?}", status);
 
         if let RadioConfig::R6x(_) = result.config {
             result.set_rxgain_retention()?;
@@ -509,24 +537,45 @@ impl Radio {
                 // prevents borrow mut error
                 let (dc_dc, fallback) = (config.dc_dc_enabled, config.fallback_mode);
 
+                // println!("a");
+
+                let status = result.get_status();
+                println!("Status, D: {:?}", status);
+
                 // Use the LDO, or DC-DC setup as required, based on hardware config.
                 result
                     .interface
                     .write_op_word(OpCode::SetRegulatorMode, dc_dc as u8)?;
 
+                // println!("b");
+
+                let status = result.get_status();
+                println!("Status, E: {:?}", status);
+
                 result
                     .interface
                     .write_op_word(OpCode::SetTxFallbackMode, fallback as u8)?;
 
+                // println!("c");
+
                 result.set_tx_params()?;
 
-                result.interface.write(&[
-                    OpCode::SetBufferBaseAddress.val_8x(),
-                    tx_addr,
-                    rx_addr,
-                ])?;
+                // println!("d");
+
+                // todo: A/R. There's a subltety to it (See note below table 14-54)
+                // result.set_sync_word(network)?;
+
+                // todo: Why is this triggering an error?
+                // result.interface.write(&[
+                //     OpCode::SetBufferBaseAddress.val_8x(),
+                //     tx_addr,
+                //     rx_addr,
+                // ])?;
             }
         }
+
+        let status = result.get_status();
+        println!("Status, end of init: {:?}", status);
 
         Ok(result)
     }
@@ -1046,19 +1095,33 @@ impl Radio {
 
     /// This is a bit confusing, as the register API takes u16, and the sync word is a u16, yet
     /// it's split into two registers.
-    /// todo: 8x?
+    /// 8x: See the note below table 14-54.
     fn set_sync_word(&mut self, network: LoraNetwork) -> Result<(), RadioError> {
         let sync_word_bytes = (network as u16).to_be_bytes();
 
-        // todo: 6x for now.
-        self.interface.write_reg_word(
-            Register::Reg6x(Register6x::LoraSyncWordMsb),
-            sync_word_bytes[0],
-        )?;
-        self.interface.write_reg_word(
-            Register::Reg6x(Register6x::LoraSyncWordLsb),
-            sync_word_bytes[1],
-        )?;
+        match self.config {
+            RadioConfig::R6x(_) => {
+                self.interface.write_reg_word(
+                    Register::Reg6x(Register6x::LoraSyncWordMsb),
+                    sync_word_bytes[0],
+                )?;
+                self.interface.write_reg_word(
+                    Register::Reg6x(Register6x::LoraSyncWordLsb),
+                    sync_word_bytes[1],
+                )?;
+            }
+            RadioConfig::R8x(_) => {
+                // todo: This isn't quite right: Must be Read/write/modify, leaving bytes 0:3.
+                // self.interface.write_reg_word(
+                //     Register::Reg8x(Register8x::LoraSynchWordA),
+                //     sync_word_bytes[0],
+                // )?;
+                // self.interface.write_reg_word(
+                //     Register::Reg8x(Register8x::LoraSynchWordB),
+                //     sync_word_bytes[1],
+                // )?;
+            }
+        };
 
         Ok(())
     }

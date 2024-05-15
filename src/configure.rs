@@ -104,8 +104,6 @@ impl Radio {
                         p1 = config.modulation_params.spreading_factor.val_8x();
                         p2 = config.modulation_params.mod_bandwidth as u8;
                         p3 = config.modulation_params.coding_rate as u8;
-
-                        println!("LORA CFG 1 {:x} 2 {:x} 3 {:x}", p1, p2, p3);
                     }
                     PacketType::LrFhssFlrc => {
                         // todo: Implement for FLRC
@@ -211,11 +209,10 @@ impl Radio {
                     PacketType::Lora => {
                         // Note: The preamble here is handled differently from SX126x, to fit in a single param.
                         // preamble length = LORA_PBLE_LEN_MANT*2^(LORA_PBLE_LEN_EXP)
-                        let pble_len_maint = (config.packet_params.preamble_len & 0xf) as u8;
+                        let pble_len_maint = config.packet_params.preamble_len as u8;
                         // Hard-set this at 0 for now; use `maint` raw. Limited to up to 16 until this is changed.
                         let pble_len_exp: u8 = 0;
 
-                        // todo: QC order.
                         let preamble_len = ((pble_len_exp & 0xf) << 4) | (pble_len_maint & 0xf);
 
                         p1 = preamble_len;
@@ -230,8 +227,6 @@ impl Radio {
                     }
                     _ => unimplemented!(), // BLE and ranging.
                 }
-
-                // todo: Confirm we can ignore unused params.
 
                 self.interface.write(&[
                     OpCode::SetPacketParams.val_8x(),
