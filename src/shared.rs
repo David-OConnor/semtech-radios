@@ -15,6 +15,7 @@ pub fn split_addr(addr: u16) -> (u8, u8) {
     (result[0], result[1])
 }
 
+// todo: Experiment.
 pub const MAX_ITERS: u32 = 400_000;
 
 // todo: Make sure this generalizes to 1280

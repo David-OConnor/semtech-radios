@@ -39,9 +39,9 @@ pub struct Interface {
 
 impl Interface {
     pub fn reset(&mut self) {
-        // todo: Should only need 100us.
+        // Should only need 100us.
         self.pins.reset.set_low();
-        delay_us(700, AHB_FREQ);
+        delay_us(500, AHB_FREQ);
         self.pins.reset.set_high();
     }
 
@@ -213,6 +213,7 @@ impl Interface {
 
         self.wait_on_busy()?;
 
+        println!("Writing DMA..."); // todo: Temp
         self.pins.cs.set_low();
         unsafe {
             self.spi.write_dma(
@@ -247,6 +248,7 @@ impl Interface {
 
         self.wait_on_busy()?;
 
+        println!("Reading DMA...");  // todo: temp
         self.pins.cs.set_low();
         unsafe {
             self.spi.transfer_dma(

@@ -2,8 +2,6 @@
 
 #![no_std]
 
-use core::ops::Range;
-
 mod configure;
 mod eratta;
 pub mod params;
@@ -16,13 +14,15 @@ pub mod sx128x;
 use defmt::println;
 use hal::dma::DmaChannel;
 
+// todo: Calibration on 8x?
+
 use crate::{
     params::{
-        ModulationParams8x, ModulationParamsLora6x, ModulationParamsLora8x, PacketParams,
+        ModulationParams8x, ModulationParamsLora6x, PacketParams,
         PacketParamsLora,
     },
     shared::{
-        OpCode, OpCode::ReadRegister, RadioError, RadioPins, Register, Register::Reg8x, Register6x,
+        OpCode, RadioError, RadioPins, Register, Register::Reg8x, Register6x,
         Register8x,
     },
     spi_interface::{Interface, Spi_, RADIO_BUF_SIZE},
@@ -249,6 +249,7 @@ pub enum OperatingModeRead {
 }
 
 /// (6x): DS, section 13.5.2. (8x): Table 11-61
+#[derive(defmt::Format)]
 pub struct RxBufferStatus {
     pub status: u8,
     pub payload_len: u8,
@@ -260,6 +261,7 @@ pub struct RxBufferStatus {
 /// units at the consumer side.
 /// todo: FSK A/R; same field count, but with different meanings.
 /// todo: For now, coopting for 8x as well.
+#[derive(defmt::Format)]
 #[derive(Default)]
 pub struct RxPacketStatusLora {
     pub status: u8,
@@ -391,9 +393,6 @@ pub enum RadioConfig {
 
 pub struct Radio {
     pub interface: Interface,
-    // todo: Wrapped enum?
-    // pub config: RadioConfig6x,
-    // pub config_8x: RadioConfig8x, // todo
     pub config: RadioConfig,
 }
 
@@ -435,13 +434,16 @@ impl Radio {
             },
         };
 
-        result.interface.reset();
+        if !r8x {
+            // Removed, due to using multiple radios on Meerkat.
+            result.interface.reset();
+        }
 
         // We use this firmware version as a sanity check.
         if r8x {
             let firmware_version = result
                 .interface
-                .read_reg_word_16(Register::Reg8x(Register8x::FirmwareVersions))?;
+                .read_reg_word_16(Reg8x(Register8x::FirmwareVersions))?;
             if ![FIRMWARE_VERSION_8X_A, FIRMWARE_VERSION_8X_B].contains(&firmware_version) {
                 return Err(RadioError::FirmwareVersion);
             }
@@ -453,6 +455,7 @@ impl Radio {
         // command. When the digital voltage and RC clock become available, the chip can boot up and the CPU takes control. At this
         // stage the BUSY line goes down and the device is ready to accept commands.
         // "
+
         result.interface.wait_on_busy()?;
 
         // Note: This is required to change some settings, like packet type.
@@ -462,36 +465,37 @@ impl Radio {
         // "it is mandatory to set the radio protocol using the command SetPacketType(...) as a first
         // step before issuing any other radio configuration commands."
 
-        match result.config {
-            RadioConfig::R6x(ref config) => {
-                result
-                    .interface
-                    .write_op_word(OpCode::SetPacketType, config.packet_type as u8)?;
-            }
-            RadioConfig::R8x(ref config) => {
-                result
-                    .interface
-                    .write_op_word(OpCode::SetPacketType, config.packet_type as u8)?;
-            }
+        let packet_type = match result.config {
+            RadioConfig::R6x(ref config) => config.packet_type,
+            RadioConfig::R8x(ref config) => config.packet_type,
+        };
+
+        result
+            .interface
+            .write_op_word(OpCode::SetPacketType, packet_type as u8)?;
+
+        // todo temp tTS {
+        {
+            result.set_irq(&[], &[Irq::RxDone, Irq::Timeout])?; // DIO3.
+            result.set_op_mode(OperatingMode::Rx(10.))?;
         }
 
+        return Ok(result); // todo temp!
+
+        // todo: Put back!
         // Note: In the Tx/Rx recipes in the DS, this is before setting mod parameters; but it's not listed
         // this way in the part on section 9.1.
-        result.set_rf_freq()?;
+        // result.set_rf_freq()?;
 
+        // todo put back
         // "In a second step, the user should define the modulation
         // parameter according to the chosen protocol with the command SetModulationParams(...)."
-        result.set_mod_params()?;
+        // result.set_mod_params()?;
 
-        // todo: Radio is going to failure state when setting packet params on 8x.
-        // todo. Fix this.
-
+        // todo put back
         // Finally, the user should then
         // select the packet format with the command SetPacketParams(...).
-        result.set_packet_params()?;
-
-        // let status = result.get_status();
-        // println!("Status, C: {:?}", status);
+        // result.set_packet_params()?;
 
         if let RadioConfig::R6x(_) = result.config {
             result.set_rxgain_retention()?;
@@ -532,6 +536,7 @@ impl Radio {
                     .interface
                     .write(&[OpCode::SetBufferBaseAddress as u8, tx_addr, rx_addr])?;
             }
+            // See DS, section 14.4: LoRa Operation, and similar.
             RadioConfig::R8x(ref config) => {
                 // prevents borrow mut error
                 let (dc_dc, fallback) = (config.dc_dc_enabled, config.fallback_mode);
@@ -542,17 +547,18 @@ impl Radio {
                 //     .interface
                 //     .write_op_word(OpCode::SetRegulatorMode, dc_dc as u8)?;
 
-                result.set_tx_params()?;
+                // todo putj back
+                // result.set_tx_params()?;
 
                 // todo: A/R. There's a subltety to it (See note below table 14-54)
                 // result.set_sync_word(network)?;
 
-                // todo: Why is this triggering an error?
-                result.interface.write(&[
-                    OpCode::SetBufferBaseAddress.val_8x(),
-                    tx_addr,
-                    rx_addr,
-                ])?;
+                // todo: put back.
+                // result.interface.write(&[
+                //     OpCode::SetBufferBaseAddress.val_8x(),
+                //     tx_addr,
+                //     rx_addr,
+                // ])?;
             }
         }
 
@@ -823,15 +829,19 @@ impl Radio {
             RadioConfig::R8x(config) => {
                 let timeout = config.rx_timeout; // prevents borrow errors.
 
-                self.set_op_mode(OperatingMode::StbyRc)?; // todo: required? Maybe prior to set_freq?
+                self.set_op_mode(OperatingMode::StbyRc)?;
 
-                // todo: set freq? Here for now.
-                self.set_rf_freq()?;
+                let tx_addr = 0;
+                let rx_addr = 0;
+                // self.interface
+                //     .write(&[OpCode::SetBufferBaseAddress.val_8x(), tx_addr, rx_addr])?;
+
+                // self.set_rf_freq()?;
 
                 // 1. Configure the DIOs and Interrupt sources (IRQs) by using command:
                 // SetDioIrqParams(irqMask,dio1Mask,dio2Mask,dio3Mask)
 
-                self.set_irq(&[], &[Irq::RxDone, Irq::Timeout])?; // DIO3.
+                // self.set_irq(&[], &[Irq::RxDone, Irq::Timeout])?; // DIO3.
 
                 // 2.Once configured, set the transceiver in receiver mode to start reception using command:
                 // SetRx(periodBase, periodBaseCount[15:8], periodBaseCount[7:0])
@@ -844,6 +854,7 @@ impl Radio {
                 // •periodBaseCount is set to another value, then Timeout is active. The device remains in Rx mode; it returns automatically
                 // to STDBY_RC Mode on timer end-of-count or when a packet has been received. As soon as a packet is detected, the
                 // timer is automatically disabled to allow complete reception of the packet.
+
                 self.set_op_mode(OperatingMode::Rx(timeout))?;
 
                 // todo: What about things in the 6x section above like setting packet params?
