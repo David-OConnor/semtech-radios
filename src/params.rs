@@ -236,9 +236,9 @@ pub struct ModulationParamsLora8x {
 impl Default for ModulationParamsLora8x {
     fn default() -> Self {
         Self {
-            mod_bandwidth: LoraBandwidth8x::BW_200,
+            mod_bandwidth: LoraBandwidth8x::BW_800,
             spreading_factor: LoraSpreadingFactor::SF5,
-            coding_rate: LoraCodingRate::CR_4_5, // todo: LI coding rates?
+            coding_rate: LoraCodingRate::CR_LI_4_6,
         }
     }
 }

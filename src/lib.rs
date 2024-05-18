@@ -22,7 +22,8 @@ use crate::{
         PacketParamsLora,
     },
     shared::{
-        OpCode, OpCode::ReadRegister, RadioError, RadioPins, Register, Register6x, Register8x,
+        OpCode, OpCode::ReadRegister, RadioError, RadioPins, Register, Register::Reg8x, Register6x,
+        Register8x,
     },
     spi_interface::{Interface, Spi_, RADIO_BUF_SIZE},
 };
@@ -1141,6 +1142,17 @@ impl Radio {
 
     pub fn get_irq_status(&mut self) -> Result<u8, RadioError> {
         self.interface.read_op_word(OpCode::GetIrqStatus)
+    }
+
+    pub fn set_high_rx_gain(&mut self) -> Result<(), RadioError> {
+        if !self.interface.r8x {
+            panic!("High gain is unavailable on SX126x.")
+        }
+
+        // Update the word using its default value.
+        let word = 0x25 | (3 << 6);
+        self.interface
+            .write_reg_word(Reg8x(Register8x::RxGain), word)
     }
 }
 
