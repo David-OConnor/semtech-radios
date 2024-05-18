@@ -312,7 +312,7 @@ pub struct RadioConfig6x {
     pub packet_params: PacketParamsLora,
     // todo: FSK A/R.
     // todo: FHSS? May be appropriate for your use case. See DS, section 6.3.
-    /// Raw register value. Timeout duration = timeout * 15.625µs.
+    /// Timeouts, in ms.
     pub tx_timeout: f32,
     pub rx_timeout: f32,
     pub fallback_mode: FallbackMode,
@@ -352,7 +352,7 @@ pub struct RadioConfig8x {
     pub packet_params: PacketParamsLora,
     // todo: FSK A/R.
     // todo: FHSS? May be appropriate for your use case. See DS, section 6.3.
-    /// Raw register value. Timeout duration = timeout * 15.625µs.
+    /// Timeouts, in ms.
     pub tx_timeout: f32,
     pub rx_timeout: f32,
     pub fallback_mode: FallbackMode,
@@ -483,7 +483,7 @@ impl Radio {
 
         // Finally, the user should then
         // select the packet format with the command SetPacketParams(...).
-        // result.set_packet_params()?;
+        result.set_packet_params()?;
 
         // let status = result.get_status();
         // println!("Status, C: {:?}", status);
@@ -642,10 +642,11 @@ impl Radio {
 
                 // 8. Define the modulation parameter according to the chosen protocol with the command SetModulationParams(...)1
                 // (set on init)
-                self.set_mod_params()?;
+                // self.set_mod_params()?;
 
                 // 9. Define the frame format to be used with the command SetPacketParams(...)
-                self.set_packet_params()?;
+                // (set on init)
+                // self.set_packet_params()?;
 
                 // 10. Configure DIO and IRQ: use the command SetDioIrqParams(...) to select TxDone IRQ and map this IRQ to a DIO (DIO1,
                 // DIO2 or DIO3)
@@ -786,8 +787,8 @@ impl Radio {
 
                 // 6. Define the frame format to be used with the command SetPacketParams(...)
                 // We must set this, as it may have been changed during a transmission to payload length.
-
-                self.set_packet_params()?;
+                // Set on init
+                // self.set_packet_params()?;
 
                 // 7. Configure DIO and irq: use the command SetDioIrqParams(...) to select the IRQ RxDone and map this IRQ to a DIO (DIO1
                 // or DIO2 or DIO3), set IRQ Timeout as well.
@@ -795,6 +796,9 @@ impl Radio {
 
                 // 8. Define Sync Word value: use the command WriteReg(...) to write the value of the register via direct register access.
                 // (Set on init)
+
+                // todo: Allow continous mode (Both 6x and 8x): Setting timeout to 0xffffff allows
+                // todo receiving multiple packets. (0xffff on 8x)
 
                 // 9. Set the circuit in reception mode: use the command SetRx(). Set the parameter to enable timeout or continuous mode
                 self.set_op_mode(OperatingMode::Rx(timeout))?;
@@ -805,6 +809,8 @@ impl Radio {
             }
             RadioConfig::R8x(config) => {
                 let timeout = config.rx_timeout; // prevents borrow errors.
+
+                self.set_op_mode(OperatingMode::StbyRc)?; // todo: required? Maybe prior to set_freq?
 
                 // todo: set freq? Here for now.
                 self.set_rf_freq()?;
