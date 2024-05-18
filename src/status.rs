@@ -70,44 +70,12 @@ impl Radio {
         let mut buf = [OpCode::GetStatus as u8, 0]; // This is OK; same OpCode on 6x and 8x.
         self.interface.read(&mut buf)?;
 
-        let (om, c_s) = match self.config {
-            RadioConfig::R6x(_) => ((buf[1] >> 4) & 0b111, (buf[1] >> 1) & 0b111),
-            RadioConfig::R8x(_) => ((buf[0] >> 5) & 0b111, (buf[0] >> 2) & 0b111),
+        let (byte, is_8x) = match self.config {
+            RadioConfig::R6x(_) => (buf[1], false),
+            RadioConfig::R8x(_) => (buf[0], true),
         };
 
-        let operating_mode = match om {
-            2 => OperatingModeRead::StbyRc,
-            3 => OperatingModeRead::StbyOsc,
-            4 => OperatingModeRead::Fs,
-            5 => OperatingModeRead::Rx,
-            6 => OperatingModeRead::Tx,
-            1 => {
-                println!("1 returned for operating mode. Investigate (\"RFU\" in DS; the future is now.)");
-                OperatingModeRead::Fs // bogus
-            }
-            _ => return Err(UnexpectedStatus(om)),
-        };
-
-        let command_status = match c_s {
-            1 => {
-                match self.config {
-                    RadioConfig::R6x(_) => {
-                        println!("1 returned for command status. Investigate (\"RFU\" in DS; the future is now.)");
-                        CommandStatus::FailureToExecuteCommand // bogus
-                                                               // todo: This should be removed in favof of unexpected status.
-                    }
-                    RadioConfig::R8x(_) => CommandStatus::CommandProcessSuccess8x,
-                }
-            }
-            2 => CommandStatus::DataAvailable,
-            3 => CommandStatus::CommandTimeout,
-            4 => CommandStatus::CommandProcessingError,
-            5 => CommandStatus::FailureToExecuteCommand,
-            6 => CommandStatus::CommandTxDone,
-            _ => return Err(UnexpectedStatus(c_s)),
-        };
-
-        Ok((operating_mode, command_status))
+        status_from_byte(byte, is_8x)
     }
 
     /// 6x DS, section 13.5.2. This loads information related to the received payload; it may be useful
@@ -136,4 +104,51 @@ impl Radio {
         // Status avail at byte 2.
         Ok(u16::from_be_bytes([buf[2], buf[3]]))
     }
+}
+
+/// Helper function to get status from a byte.
+pub(crate) fn status_from_byte(
+    byte: u8,
+    r8x: bool,
+) -> Result<(OperatingModeRead, CommandStatus), RadioError> {
+    let (om, c_s) = if !r8x {
+        ((byte >> 4) & 0b111, (byte >> 1) & 0b111)
+    } else {
+        ((byte >> 5) & 0b111, (byte >> 2) & 0b111)
+    };
+
+    let operating_mode = match om {
+        2 => OperatingModeRead::StbyRc,
+        3 => OperatingModeRead::StbyOsc,
+        4 => OperatingModeRead::Fs,
+        5 => OperatingModeRead::Rx,
+        6 => OperatingModeRead::Tx,
+        1 => {
+            println!(
+                "1 returned for operating mode. Investigate (\"RFU\" in DS; the future is now.)"
+            );
+            OperatingModeRead::Fs // bogus
+        }
+        _ => return Err(UnexpectedStatus(om)),
+    };
+
+    let command_status = match c_s {
+        1 => {
+            if !r8x {
+                println!("1 returned for command status. Investigate (\"RFU\" in DS; the future is now.)");
+                CommandStatus::FailureToExecuteCommand // bogus
+                                                       // todo: This should be removed in favof of unexpected status.
+            } else {
+                CommandStatus::CommandProcessSuccess8x
+            }
+        }
+        2 => CommandStatus::DataAvailable,
+        3 => CommandStatus::CommandTimeout,
+        4 => CommandStatus::CommandProcessingError,
+        5 => CommandStatus::FailureToExecuteCommand,
+        6 => CommandStatus::CommandTxDone,
+        _ => return Err(UnexpectedStatus(c_s)),
+    };
+
+    Ok((operating_mode, command_status))
 }

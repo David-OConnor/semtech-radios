@@ -453,9 +453,6 @@ impl Radio {
         // Note: This is required to change some settings, like packet type.
         result.set_op_mode(OperatingMode::StbyRc)?;
 
-        let status = result.get_status();
-        println!("Status, A: {:?}", status);
-
         // Make sure we're in STDBY_RC mode when setting packet type.
         // "it is mandatory to set the radio protocol using the command SetPacketType(...) as a first
         // step before issuing any other radio configuration commands."
@@ -480,9 +477,6 @@ impl Radio {
         // "In a second step, the user should define the modulation
         // parameter according to the chosen protocol with the command SetModulationParams(...)."
         result.set_mod_params()?;
-
-        let status = result.get_status();
-        println!("Status, B: {:?}", status);
 
         // todo: Radio is going to failure state when setting packet params on 8x.
         // todo. Fix this.
@@ -518,7 +512,7 @@ impl Radio {
 
                 result
                     .interface
-                    .write_op_word(OpCode::SetTxFallbackMode, fallback as u8)?;
+                    .write_op_word(OpCode::SetRxTxFallbackMode, fallback as u8)?;
 
                 result
                     .interface
@@ -537,45 +531,25 @@ impl Radio {
                 // prevents borrow mut error
                 let (dc_dc, fallback) = (config.dc_dc_enabled, config.fallback_mode);
 
-                // println!("a");
-
-                let status = result.get_status();
-                println!("Status, D: {:?}", status);
-
+                // todo temp TS; put back.
                 // Use the LDO, or DC-DC setup as required, based on hardware config.
-                result
-                    .interface
-                    .write_op_word(OpCode::SetRegulatorMode, dc_dc as u8)?;
-
-                // println!("b");
-
-                let status = result.get_status();
-                println!("Status, E: {:?}", status);
-
-                result
-                    .interface
-                    .write_op_word(OpCode::SetTxFallbackMode, fallback as u8)?;
-
-                // println!("c");
+                // result
+                //     .interface
+                //     .write_op_word(OpCode::SetRegulatorMode, dc_dc as u8)?;
 
                 result.set_tx_params()?;
-
-                // println!("d");
 
                 // todo: A/R. There's a subltety to it (See note below table 14-54)
                 // result.set_sync_word(network)?;
 
                 // todo: Why is this triggering an error?
-                // result.interface.write(&[
-                //     OpCode::SetBufferBaseAddress.val_8x(),
-                //     tx_addr,
-                //     rx_addr,
-                // ])?;
+                result.interface.write(&[
+                    OpCode::SetBufferBaseAddress.val_8x(),
+                    tx_addr,
+                    rx_addr,
+                ])?;
             }
         }
-
-        let status = result.get_status();
-        println!("Status, end of init: {:?}", status);
 
         Ok(result)
     }

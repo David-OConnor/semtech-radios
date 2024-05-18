@@ -82,7 +82,7 @@ pub enum OpCode {
     GetDeviceErrors = 0x17,
     ClrErrors = 0x07,
     SetTCXOMode = 0x97,
-    SetTxFallbackMode = 0x93,
+    SetRxTxFallbackMode = 0x93,
     SetDIO2AsRfSwitchCtrl = 0x9d,
     SetStopRxTimerOnPreamble = 0x9F,
     SetLoRaSymbTimeout = 0xA0,

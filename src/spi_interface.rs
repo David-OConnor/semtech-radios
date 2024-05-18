@@ -11,6 +11,7 @@ use hal::{
 use crate::{
     shared,
     shared::{OpCode, RadioError, MAX_ITERS},
+    status,
 };
 
 pub type Spi_ = Spi<SPI1>;
@@ -67,10 +68,20 @@ impl Interface {
 
         self.pins.cs.set_low();
 
-        if self.spi.write(&[c, word]).is_err() {
+        // if self.spi.write(&[c, word]).is_err() {
+        //     self.pins.cs.set_high();
+        //     return Err(RadioError::Spi);
+        // }
+
+        let mut buf = [c, word];
+
+        if self.spi.transfer(&mut buf).is_err() {
             self.pins.cs.set_high();
             return Err(RadioError::Spi);
         }
+
+        let status = status::status_from_byte(buf[0], self.r8x);
+        println!("STATUS OP WORD WRITE: {:x}, {:?}", code as u8, status);
 
         self.pins.cs.set_high();
 
