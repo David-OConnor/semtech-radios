@@ -17,7 +17,10 @@ use defmt::println;
 use hal::dma::DmaChannel;
 
 use crate::{
-    params::{ModulationParamsLora6x, ModulationParamsLora8x, PacketParamsLora},
+    params::{
+        ModulationParams8x, ModulationParamsLora6x, ModulationParamsLora8x, PacketParams,
+        PacketParamsLora,
+    },
     shared::{
         OpCode, OpCode::ReadRegister, RadioError, RadioPins, Register, Register6x, Register8x,
     },
@@ -344,12 +347,13 @@ impl Default for RadioConfig6x {
 /// It also includes consumption, RFIO schematics etc. Use `Shared RFIO`, vice a switch; breaks the calculator.
 #[derive(Clone)]
 pub struct RadioConfig8x {
+    // todo: Integrate mod and packet params into this enum?
     pub packet_type: PacketType,
     // RF frequency in Hz.
     pub rf_freq: u32,
     pub dc_dc_enabled: bool,
-    pub modulation_params: ModulationParamsLora8x,
-    pub packet_params: PacketParamsLora,
+    pub modulation_params: ModulationParams8x,
+    pub packet_params: PacketParams,
     // todo: FSK A/R.
     // todo: FHSS? May be appropriate for your use case. See DS, section 6.3.
     /// Timeouts, in ms.
@@ -588,7 +592,11 @@ impl Radio {
             }
             RadioConfig::R8x(ref mut config) => {
                 config.rf_freq = rf_freq;
-                config.packet_params.payload_len = payload_len as u8;
+
+                match &mut config.packet_params {
+                    PacketParams::Lora(p) => p.payload_len = payload_len as u8,
+                    PacketParams::Flrc(p) => p.payload_len = payload_len as u8,
+                }
             }
         }
 
@@ -755,7 +763,11 @@ impl Radio {
             }
             RadioConfig::R8x(ref mut config) => {
                 config.rf_freq = rf_freq;
-                config.packet_params.payload_len = max_payload_len;
+
+                match &mut config.packet_params {
+                    PacketParams::Lora(p) => p.payload_len = max_payload_len,
+                    PacketParams::Flrc(p) => p.payload_len = max_payload_len,
+                }
             }
         }
 

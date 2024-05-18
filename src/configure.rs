@@ -3,7 +3,7 @@
 use defmt::println;
 
 use crate::{
-    params::LoraSpreadingFactor,
+    params::{LoraSpreadingFactor, ModulationParams8x, PacketParams},
     shared::{OpCode, RadioError, Register, Register::Reg8x, Register8x},
     time_bytes_6x, time_bytes_8x, OperatingMode, PacketType, Radio, RadioConfig, FREQ_CONST_6X,
     FREQ_CONST_8X,
@@ -100,15 +100,26 @@ impl Radio {
                     PacketType::Gfsk => {
                         unimplemented!()
                     }
-                    PacketType::Lora => {
-                        p1 = config.modulation_params.spreading_factor.val_8x();
-                        p2 = config.modulation_params.mod_bandwidth as u8;
-                        p3 = config.modulation_params.coding_rate as u8;
-                    }
-                    PacketType::LrFhssFlrc => {
-                        // todo: Implement for FLRC
-                        unimplemented!()
-                    }
+                    PacketType::Lora => match &config.modulation_params {
+                        ModulationParams8x::Lora(m) => {
+                            p1 = m.spreading_factor.val_8x();
+                            p2 = m.mod_bandwidth as u8;
+                            p3 = m.coding_rate as u8;
+                        }
+                        ModulationParams8x::Flrc(_) => {
+                            panic!("Found FLRC modulation params for Lora packet type.")
+                        }
+                    },
+                    PacketType::LrFhssFlrc => match &config.modulation_params {
+                        ModulationParams8x::Lora(_) => {
+                            panic!("Found Lora modulation params for FLRC packet type.")
+                        }
+                        ModulationParams8x::Flrc(m) => {
+                            p1 = m.bitrate as u8;
+                            p2 = m.coding_rate as u8;
+                            p3 = m.bt as u8;
+                        }
+                    },
                     _ => unimplemented!(),
                 }
 
@@ -117,15 +128,17 @@ impl Radio {
 
                 // See the note below Table 14-47: This write must be performed after setting mod params
                 // on 8x.
-                let sf_cfg_val = match config.modulation_params.spreading_factor {
-                    LoraSpreadingFactor::SF5 | LoraSpreadingFactor::SF6 => 0x1e,
-                    LoraSpreadingFactor::SF7 | LoraSpreadingFactor::SF8 => 0x37,
-                    _ => 0x32,
-                };
-                self.interface
-                    .write_reg_word(Reg8x(Register8x::SfAdditionalConfiguration), sf_cfg_val)?;
-                self.interface
-                    .write_reg_word(Reg8x(Register8x::FrequencyErrorCorrection), 0x1)?;
+                if let ModulationParams8x::Lora(m) = &config.modulation_params {
+                    let sf_cfg_val = match m.spreading_factor {
+                        LoraSpreadingFactor::SF5 | LoraSpreadingFactor::SF6 => 0x1e,
+                        LoraSpreadingFactor::SF7 | LoraSpreadingFactor::SF8 => 0x37,
+                        _ => 0x32,
+                    };
+                    self.interface
+                        .write_reg_word(Reg8x(Register8x::SfAdditionalConfiguration), sf_cfg_val)?;
+                    self.interface
+                        .write_reg_word(Reg8x(Register8x::FrequencyErrorCorrection), 0x1)?;
+                }
             }
         }
 
@@ -207,24 +220,41 @@ impl Radio {
                         unimplemented!()
                     }
                     PacketType::Lora => {
-                        // Note: The preamble here is handled differently from SX126x, to fit in a single param.
-                        // preamble length = LORA_PBLE_LEN_MANT*2^(LORA_PBLE_LEN_EXP)
-                        let pble_len_maint = config.packet_params.preamble_len as u8;
-                        // Hard-set this at 0 for now; use `maint` raw. Limited to up to 16 until this is changed.
-                        let pble_len_exp: u8 = 0;
+                        match &config.packet_params {
+                            PacketParams::Lora(p) => {
+                                // Note: The preamble here is handled differently from SX126x, to fit in a single param.
+                                // preamble length = LORA_PBLE_LEN_MANT*2^(LORA_PBLE_LEN_EXP)
+                                let pble_len_maint = p.preamble_len as u8;
+                                // Hard-set this at 0 for now; use `maint` raw. Limited to up to 16 until this is changed.
+                                let pble_len_exp: u8 = 0;
 
-                        let preamble_len = ((pble_len_exp & 0xf) << 4) | (pble_len_maint & 0xf);
+                                let preamble_len =
+                                    ((pble_len_exp & 0xf) << 4) | (pble_len_maint & 0xf);
 
-                        p1 = preamble_len;
-                        p2 = config.packet_params.header_type.val_8x();
-                        p3 = config.packet_params.payload_len;
-                        p4 = config.packet_params.crc_enabled.val_8x();
-                        p5 = config.packet_params.invert_iq.val_8x();
+                                p1 = preamble_len;
+                                p2 = p.header_type.val_8x();
+                                p3 = p.payload_len;
+                                p4 = p.crc_enabled.val_8x();
+                                p5 = p.invert_iq.val_8x();
+                            }
+                            PacketParams::Flrc(_) => {
+                                panic!("Found FLRC packet params for Lora packet type.")
+                            }
+                        }
                     }
-                    PacketType::LrFhssFlrc => {
-                        // todo: Implement this for sx1280: FLRC
-                        unimplemented!()
-                    }
+                    PacketType::LrFhssFlrc => match &config.packet_params {
+                        PacketParams::Lora(_) => {
+                            panic!("Found Lora packet params for FLRC packet type.")
+                        }
+                        PacketParams::Flrc(p) => {
+                            p1 = p.preamble_len as u8;
+                            p2 = p.sync_word_len as u8;
+                            p3 = p.sync_word_combo as u8;
+                            p4 = p.packet_type as u8;
+                            p5 = p.payload_len;
+                            p6 = p.crc as u8;
+                        }
+                    },
                     _ => unimplemented!(), // BLE and ranging.
                 }
 

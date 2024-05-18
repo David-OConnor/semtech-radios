@@ -140,12 +140,70 @@ pub enum LoraLdrOptimization {
     Enabled = 1,
 }
 
+#[repr(u8)]
+#[derive(Clone, Copy)]
+#[allow(non_camel_case_types, dead_code)]
+/// (SX128x only). Table 14-31.
+pub enum FlrcBitrate {
+    /// 1.3Mb/s, 1.2Mhz
+    BR_1_3 = 0x45,
+    /// 1.04Mb/s, 1.2Mhz
+    BR_1_0 = 0x69,
+    /// 0.65Mb/s, 0.6Mhz
+    BR_0_6 = 0x86,
+    /// 0.52Mb/s, 0.6Mhz
+    BR_0_5 = 0xaa,
+    /// .325Mb/s, 0.3Mhz
+    BR_0_3 = 0xc7,
+    /// 0.26Mb/s, 0.3Mhz
+    BR_0_2 = 0xeb,
+}
+
+#[repr(u8)]
+#[derive(Clone, Copy)]
+#[allow(non_camel_case_types, dead_code)]
+/// (SX128x only). Table 14-32.
+pub enum FlrcCodingRate {
+    /// 1/2
+    CR_1_2 = 0x00,
+    /// 3/4
+    CR_3_4 = 0x02,
+    /// 1
+    CR1_1 = 0x04,
+}
+
+#[repr(u8)]
+#[derive(Clone, Copy)]
+#[allow(non_camel_case_types, dead_code)]
+/// (SX128x only). Table 14-33.
+pub enum FlrcBt {
+    Disabled = 0x00,
+    BT_1 = 0x10,
+    BT_0_5 = 0x20,
+}
+
+#[derive(Clone)]
+pub enum ModulationParams8x {
+    Lora(ModulationParamsLora8x),
+    Flrc(ModulationParamsFlrc),
+}
+
+impl Default for ModulationParams8x {
+    fn default() -> Self {
+        Self::Lora(Default::default())
+    }
+}
+
 /// (126x) See DS, section 6.1.1: Modulation Parameter.
 #[derive(Clone)]
 pub struct ModulationParamsLora6x {
+    /// Param 1
     pub mod_bandwidth: LoraBandwidth6x,
+    /// Param 2
     pub spreading_factor: LoraSpreadingFactor,
+    /// Param 3
     pub coding_rate: LoraCodingRate,
+    /// Param 4
     pub low_data_rate_optimization: LoraLdrOptimization,
 }
 
@@ -185,6 +243,29 @@ impl Default for ModulationParamsLora8x {
     }
 }
 
+/// 8x only: See table 14-31.
+#[derive(Clone)]
+pub struct ModulationParamsFlrc {
+    /// Param 1
+    pub bitrate: FlrcBitrate,
+    /// Param 2
+    pub coding_rate: FlrcCodingRate,
+    /// Param 3
+    /// todo: Actual name?
+    pub bt: FlrcBt,
+}
+
+impl Default for ModulationParamsFlrc {
+    fn default() -> Self {
+        // todo: QC these.
+        Self {
+            bitrate: FlrcBitrate::BR_1_3,       // The highest
+            coding_rate: FlrcCodingRate::CR1_1, // todo: What's a good default? Check DS
+            bt: FlrcBt::Disabled,               // todo: Which?
+        }
+    }
+}
+
 /// SX126x DS, Table 13-67. Packet param 3.
 /// SX128x DS, Table 14-51. Packet param 2.
 /// Also, Section 6.1.3. "The LoRa® modem employs two types of packet formats: explicit and implicit. The explicit
@@ -211,6 +292,75 @@ impl LoraHeaderType {
             Self::FixedLength => 0x80,
         }
     }
+}
+
+#[repr(u8)]
+#[derive(Clone, Copy)]
+#[allow(non_camel_case_types, dead_code)]
+/// (SX128x only). Packet param 1. Table 14-34. 8 Bit is the min for 1Mb/s bit rate. Min 16 otherwise.
+pub enum FlrcPreambleLen {
+    /// 8 bits, etc
+    P8 = 0x10,
+    P12 = 0x20,
+    P16 = 0x30,
+    P20 = 0x40,
+    P24 = 0x50,
+    P28 = 0x60,
+    P32 = 0x70,
+}
+
+#[repr(u8)]
+#[derive(Clone, Copy)]
+#[allow(non_camel_case_types, dead_code)]
+/// (SX128x only). Packet param 2 Table 14-35.
+/// The number of bytes used for Sync Word is defined by packetParam2. The user can rely on the built-in 21-bit preamble
+/// always required to detect start of packet, or add 4 additional Sync Word for address detection in case of multiple
+/// devices.
+pub enum FlrcSyncWordLen {
+    /// 21 bit preamble
+    NoSync = 0x00,
+    /// 21 bit preamble + 32 bit Sync Word
+    P32 = 0x04,
+}
+
+#[repr(u8)]
+#[derive(Clone, Copy)]
+#[allow(non_camel_case_types, dead_code)]
+/// (SX128x only). Packet param 3. Table 14-36.
+/// "A configurable number of bit-errors can be tolerated in the Sync Word. The desired number of bit errors permissible is
+/// written to Synch Address Control register 0x9CD: this is a direct binary mapping with 0 meaning no error is tolerated
+/// and 15 meaning up to 15 bit errors will be tolerated.
+/// With 3 correlators, the transceiver can search for up to 3 Sync Words at the time. The combination of Sync Word
+/// detection is defined by parameters PacketParam3."
+pub enum FlrcSyncWordCombo {
+    Disabled = 0x00,
+    SyncWord1 = 0x10,
+    SyncWord2 = 0x20,
+    SyncWord1Or2 = 0x30,
+    SyncWord3 = 0x40,
+    SyncWord1Or3 = 0x50,
+    SyncWord2Or3 = 0x60,
+    SyncWord1Or2Or3 = 0x70,
+}
+
+#[repr(u8)]
+#[derive(Clone, Copy)]
+#[allow(non_camel_case_types, dead_code)]
+/// (SX128x only). Packet param 4. Table 14-37.
+pub enum FlrcPacketType {
+    LenFixed = 0x00,
+    LenVariable = 0x20,
+}
+
+#[repr(u8)]
+#[derive(Clone, Copy)]
+#[allow(non_camel_case_types, dead_code)]
+/// (SX128x only). Packet param 6. Table 14-39.
+pub enum FlrcCrc {
+    CrcOff = 0x00,
+    Crc2Byte = 0x10,
+    Crc3Byte = 0x20,
+    Crc4Byte = 0x30,
 }
 
 #[repr(u8)]
@@ -259,6 +409,19 @@ impl InvertIq {
     }
 }
 
+#[derive(Clone)]
+/// Only used on 8x; we force Lora for 6x at this time.
+pub enum PacketParams {
+    Lora(PacketParamsLora),
+    Flrc(PacketParamsFlrc),
+}
+
+impl Default for PacketParams {
+    fn default() -> Self {
+        Self::Lora(Default::default())
+    }
+}
+
 /// (sx126x)See DS, section 13.4.6.2.
 /// (sx128x)See DS, see starting at table 14-51.
 #[derive(Clone)]
@@ -289,6 +452,36 @@ impl Default for PacketParamsLora {
             payload_len: 0, // This is set during transmission.
             crc_enabled: CrcEnabled::Enabled,
             invert_iq: InvertIq::Standard,
+        }
+    }
+}
+
+/// 8x only. DS, Table 14-34
+#[derive(Clone)]
+pub struct PacketParamsFlrc {
+    /// Param 1
+    pub preamble_len: FlrcPreambleLen,
+    /// Param 2
+    pub sync_word_len: FlrcSyncWordLen,
+    /// Param 3
+    pub sync_word_combo: FlrcSyncWordCombo,
+    /// Param 4
+    pub packet_type: FlrcPacketType,
+    /// Param 5
+    pub payload_len: u8,
+    /// Param 6
+    pub crc: FlrcCrc,
+}
+
+impl Default for PacketParamsFlrc {
+    fn default() -> Self {
+        Self {
+            preamble_len: FlrcPreambleLen::P16, // Minimum for bit rates other than 1Mb/s (8 there)
+            sync_word_len: FlrcSyncWordLen::NoSync, // consider setting the sync if using multiple devices.
+            sync_word_combo: FlrcSyncWordCombo::Disabled,
+            packet_type: FlrcPacketType::LenVariable, // todo?
+            payload_len: 0,
+            crc: FlrcCrc::CrcOff,
         }
     }
 }
