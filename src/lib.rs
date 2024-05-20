@@ -12,19 +12,12 @@ pub mod sx126x;
 pub mod sx128x;
 
 use defmt::println;
-use hal::dma::DmaChannel;
+use hal::{dma::DmaChannel, gpio::Port};
 
 // todo: Calibration on 8x?
-
 use crate::{
-    params::{
-        ModulationParams8x, ModulationParamsLora6x, PacketParams,
-        PacketParamsLora,
-    },
-    shared::{
-        OpCode, RadioError, RadioPins, Register, Register::Reg8x, Register6x,
-        Register8x,
-    },
+    params::{ModulationParams8x, ModulationParamsLora6x, PacketParams, PacketParamsLora},
+    shared::{OpCode, RadioError, RadioPins, Register, Register::Reg8x, Register6x, Register8x},
     spi_interface::{Interface, Spi_, RADIO_BUF_SIZE},
 };
 
@@ -261,8 +254,7 @@ pub struct RxBufferStatus {
 /// units at the consumer side.
 /// todo: FSK A/R; same field count, but with different meanings.
 /// todo: For now, coopting for 8x as well.
-#[derive(defmt::Format)]
-#[derive(Default)]
+#[derive(defmt::Format, Default)]
 pub struct RxPacketStatusLora {
     pub status: u8,
     /// Average over last packet received of RSSI
@@ -316,8 +308,6 @@ pub struct RadioConfig6x {
     pub dc_dc_enabled: bool,
     pub modulation_params: ModulationParamsLora6x,
     pub packet_params: PacketParamsLora,
-    // todo: FSK A/R.
-    // todo: FHSS? May be appropriate for your use case. See DS, section 6.3.
     /// Timeouts, in ms.
     pub tx_timeout: f32,
     pub rx_timeout: f32,
@@ -357,8 +347,6 @@ pub struct RadioConfig8x {
     pub dc_dc_enabled: bool,
     pub modulation_params: ModulationParams8x,
     pub packet_params: PacketParams,
-    // todo: FSK A/R.
-    // todo: FHSS? May be appropriate for your use case. See DS, section 6.3.
     /// Timeouts, in ms.
     pub tx_timeout: f32,
     pub rx_timeout: f32,
@@ -474,33 +462,29 @@ impl Radio {
             .interface
             .write_op_word(OpCode::SetPacketType, packet_type as u8)?;
 
-        // todo temp tTS {
-        {
-            result.set_irq(&[], &[Irq::RxDone, Irq::Timeout])?; // DIO3.
-            result.set_op_mode(OperatingMode::Rx(10.))?;
-        }
-
-        return Ok(result); // todo temp!
-
-        // todo: Put back!
         // Note: In the Tx/Rx recipes in the DS, this is before setting mod parameters; but it's not listed
         // this way in the part on section 9.1.
+        // todo: This is breaking things on 8x.
         // result.set_rf_freq()?;
 
-        // todo put back
         // "In a second step, the user should define the modulation
         // parameter according to the chosen protocol with the command SetModulationParams(...)."
-        // result.set_mod_params()?;
+        result.set_mod_params()?;
 
-        // todo put back
         // Finally, the user should then
         // select the packet format with the command SetPacketParams(...).
-        // result.set_packet_params()?;
+        result.set_packet_params()?;
 
         if let RadioConfig::R6x(_) = result.config {
             result.set_rxgain_retention()?;
             result.tx_clamp_workaround()?;
         }
+
+        result.set_tx_params()?;
+
+        result
+            .interface
+            .write(&[OpCode::SetBufferBaseAddress as u8, tx_addr, rx_addr])?;
 
         match result.config {
             RadioConfig::R6x(ref config) => {
@@ -527,38 +511,43 @@ impl Radio {
                     .interface
                     .write_op_word(OpCode::SetDIO2AsRfSwitchCtrl, dio as u8)?;
 
-                result.set_tx_params()?;
-
                 // Note: Not required if private due to the reset value.
                 result.set_sync_word(network)?;
-
-                result
-                    .interface
-                    .write(&[OpCode::SetBufferBaseAddress as u8, tx_addr, rx_addr])?;
             }
             // See DS, section 14.4: LoRa Operation, and similar.
             RadioConfig::R8x(ref config) => {
                 // prevents borrow mut error
                 let (dc_dc, fallback) = (config.dc_dc_enabled, config.fallback_mode);
 
-                // todo temp TS; put back.
-                // Use the LDO, or DC-DC setup as required, based on hardware config.
+                // todo: This is breakigngs things...
                 // result
                 //     .interface
                 //     .write_op_word(OpCode::SetRegulatorMode, dc_dc as u8)?;
 
-                // todo putj back
-                // result.set_tx_params()?;
+                // todo temp tTS {
+                // {
+                //     let pt = result.interface.read_op_word(OpCode::GetPacketType);
+                //     println!("Packet type: {:?}", pt);
+                //
+                //     static mut i: u32 = 0;
+                //
+                //     result.set_irq(&[], &[Irq::RxDone, Irq::Timeout])?; // DIO3.
+                //
+                //     loop {
+                //         unsafe { i += 1;}
+                //
+                //         if unsafe { i } % 10_000_000 == 0 {
+                //             // result.set_op_mode(OperatingMode::StbyRc)?;
+                //             result.set_op_mode(OperatingMode::Rx(0.))?;
+                //             // result.set_op_mode(OperatingMode::Rx(10.))?;
+                //             println!("status test: {:?}", result.get_status());
+                //             println!("STATUS test i: {:?}", result.get_irq_status());
+                //         }
+                //     }
+                // }
 
                 // todo: A/R. There's a subltety to it (See note below table 14-54)
                 // result.set_sync_word(network)?;
-
-                // todo: put back.
-                // result.interface.write(&[
-                //     OpCode::SetBufferBaseAddress.val_8x(),
-                //     tx_addr,
-                //     rx_addr,
-                // ])?;
             }
         }
 
@@ -833,15 +822,15 @@ impl Radio {
 
                 let tx_addr = 0;
                 let rx_addr = 0;
-                // self.interface
-                //     .write(&[OpCode::SetBufferBaseAddress.val_8x(), tx_addr, rx_addr])?;
+                self.interface
+                    .write(&[OpCode::SetBufferBaseAddress.val_8x(), tx_addr, rx_addr])?;
 
                 // self.set_rf_freq()?;
 
                 // 1. Configure the DIOs and Interrupt sources (IRQs) by using command:
                 // SetDioIrqParams(irqMask,dio1Mask,dio2Mask,dio3Mask)
 
-                // self.set_irq(&[], &[Irq::RxDone, Irq::Timeout])?; // DIO3.
+                self.set_irq(&[], &[Irq::RxDone, Irq::Timeout])?; // DIO3.
 
                 // 2.Once configured, set the transceiver in receiver mode to start reception using command:
                 // SetRx(periodBase, periodBaseCount[15:8], periodBaseCount[7:0])
@@ -855,7 +844,11 @@ impl Radio {
                 // to STDBY_RC Mode on timer end-of-count or when a packet has been received. As soon as a packet is detected, the
                 // timer is automatically disabled to allow complete reception of the packet.
 
-                self.set_op_mode(OperatingMode::Rx(timeout))?;
+                // self.set_op_mode(OperatingMode::Rx(timeout))?;
+
+                // todo temp
+                // self.set_op_mode(OperatingMode::Rx(0.))?;
+                // println!("STAT FOR RX MODE {:?}", self.get_status());
 
                 // todo: What about things in the 6x section above like setting packet params?
 
@@ -1188,5 +1181,8 @@ fn time_bytes_8x(time_ms: f32) -> [u8; 3] {
     // todo: QC order, etc
     let period_base = ((time_ms / TIMING_FACTOR_MS_6X) as u32).to_be_bytes();
     // 0 in the first position defines th ebase period to be the 15.625 us value hard-coded for 6x.
+
+    // println!("PERIOD BASE: {:?}", period_base);
+
     [0x00, period_base[2], period_base[3]]
 }

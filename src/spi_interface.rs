@@ -81,7 +81,7 @@ impl Interface {
         }
 
         let status = status::status_from_byte(buf[0], self.r8x);
-        println!("STATUS OP WORD WRITE: {:x}, {:?}", code as u8, status);
+        // println!("STATUS OP WORD WRITE: {:x}, {:?}", code as u8, status);
 
         self.pins.cs.set_high();
 
@@ -248,7 +248,7 @@ impl Interface {
 
         self.wait_on_busy()?;
 
-        println!("Reading DMA...");  // todo: temp
+        println!("Reading DMA..."); // todo: temp
         self.pins.cs.set_low();
         unsafe {
             self.spi.transfer_dma(

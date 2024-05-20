@@ -123,7 +123,7 @@ pub enum LoraCodingRate {
     /// events. The FEC has been kept the same to limit the impact on complexity."
     CR_LI_4_5 = 5,
     CR_LI_4_6 = 6,
-    CR_LI_4_7 = 8,
+    CR_LI_4_8 = 7,
 }
 
 #[repr(u8)]
@@ -447,7 +447,7 @@ pub struct PacketParamsLora {
 impl Default for PacketParamsLora {
     fn default() -> Self {
         Self {
-            preamble_len: 12, // Recommended in 8x. (Maybe 6x too)
+            preamble_len: 12, // Recommended to be 12 for both 6x and 8x.
             header_type: LoraHeaderType::VariableLength,
             payload_len: 0, // This is set during transmission.
             crc_enabled: CrcEnabled::Enabled,
