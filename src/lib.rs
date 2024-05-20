@@ -8,11 +8,9 @@ pub mod params;
 pub mod shared;
 pub mod spi_interface;
 mod status;
-pub mod sx126x;
-pub mod sx128x;
 
 use defmt::println;
-use hal::{dma::DmaChannel, gpio::Port};
+use hal::{dma::DmaChannel};
 
 // todo: Calibration on 8x?
 use crate::{
@@ -28,9 +26,9 @@ use crate::{
 /// Note: On 8x, we can choose from four of these. We use the same one as 6x, always, for now.
 const TIMING_FACTOR_MS_6X: f32 = 0.015_625;
 
-const F_XTAL_6X: f32 = 32_000_000.; // Oscillator frequency in Mhz.
-const F_XTAL_8X: f32 = 52_000_000.; // Oscillator frequency in Mhz.
-                                    // The radio's maximum data buffer size.
+// Oscillator frequency in Mhz.
+const F_XTAL_6X: f32 = 32_000_000.;
+const F_XTAL_8X: f32 = 52_000_000.;
 
 // These constants are pre-computed
 const FREQ_CONST_6X: f32 = F_XTAL_6X / (1 << 25) as f32;
@@ -464,7 +462,8 @@ impl Radio {
 
         // Note: In the Tx/Rx recipes in the DS, this is before setting mod parameters; but it's not listed
         // this way in the part on section 9.1.
-        // todo: This is breaking things on 8x.
+
+        // todo: This is breaking things on 8x, but we set it when receiving and transmitting.
         // result.set_rf_freq()?;
 
         // "In a second step, the user should define the modulation
@@ -523,28 +522,6 @@ impl Radio {
                 // result
                 //     .interface
                 //     .write_op_word(OpCode::SetRegulatorMode, dc_dc as u8)?;
-
-                // todo temp tTS {
-                // {
-                //     let pt = result.interface.read_op_word(OpCode::GetPacketType);
-                //     println!("Packet type: {:?}", pt);
-                //
-                //     static mut i: u32 = 0;
-                //
-                //     result.set_irq(&[], &[Irq::RxDone, Irq::Timeout])?; // DIO3.
-                //
-                //     loop {
-                //         unsafe { i += 1;}
-                //
-                //         if unsafe { i } % 10_000_000 == 0 {
-                //             // result.set_op_mode(OperatingMode::StbyRc)?;
-                //             result.set_op_mode(OperatingMode::Rx(0.))?;
-                //             // result.set_op_mode(OperatingMode::Rx(10.))?;
-                //             println!("status test: {:?}", result.get_status());
-                //             println!("STATUS test i: {:?}", result.get_irq_status());
-                //         }
-                //     }
-                // }
 
                 // todo: A/R. There's a subltety to it (See note below table 14-54)
                 // result.set_sync_word(network)?;
@@ -673,7 +650,6 @@ impl Radio {
                 // (Handled in firmware GPIO ISR)
             }
             RadioConfig::R8x(_config) => {
-                // todo: Where do we set the frequency? Adding here for now.
                 self.set_rf_freq()?;
 
                 // 1. Define the output power and ramp time by sending the command:
@@ -844,13 +820,7 @@ impl Radio {
                 // to STDBY_RC Mode on timer end-of-count or when a packet has been received. As soon as a packet is detected, the
                 // timer is automatically disabled to allow complete reception of the packet.
 
-                // self.set_op_mode(OperatingMode::Rx(timeout))?;
-
-                // todo temp
-                // self.set_op_mode(OperatingMode::Rx(0.))?;
-                // println!("STAT FOR RX MODE {:?}", self.get_status());
-
-                // todo: What about things in the 6x section above like setting packet params?
+                self.set_op_mode(OperatingMode::Rx(timeout))?;
 
                 // 3. In typical cases, use a timeout and wait for IRQ RxDone or RxTxTimeout.
                 // If IRQ RxDone is asserted, the transceiver goes to STDBY_RC mode if single mode is used (timeout set to a value different
@@ -931,6 +901,7 @@ impl Radio {
     /// and command status (Data available, timeout etc). Note: If we didn't receive a message, run `clear_irq` instead of this.
     pub fn cleanup_rx(&mut self) -> Result<(RxBufferStatus, CommandStatus), RadioError> {
         let (op_mode, cmd_status) = self.get_status()?;
+
         if op_mode != OperatingModeRead::StbyRc
             || (cmd_status != CommandStatus::DataAvailable
                 && cmd_status != CommandStatus::CommandTimeout)
@@ -939,6 +910,8 @@ impl Radio {
                 "\nProblem with Rx status post-read. Operating mode: {} Command status: {}",
                 op_mode, cmd_status
             );
+            // This executes if we didn't receive a message.
+            self.clear_irq(&[Irq::RxDone, Irq::Timeout])?;
             return Err(RadioError::Status((op_mode, cmd_status)));
         }
 

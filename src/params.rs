@@ -257,11 +257,10 @@ pub struct ModulationParamsFlrc {
 
 impl Default for ModulationParamsFlrc {
     fn default() -> Self {
-        // todo: QC these.
         Self {
-            bitrate: FlrcBitrate::BR_1_3,       // The highest
-            coding_rate: FlrcCodingRate::CR1_1, // todo: What's a good default? Check DS
-            bt: FlrcBt::Disabled,               // todo: Which?
+            bitrate: FlrcBitrate::BR_0_6,
+            coding_rate: FlrcCodingRate::CR_1_2,
+            bt: FlrcBt::BT_1,
         }
     }
 }
