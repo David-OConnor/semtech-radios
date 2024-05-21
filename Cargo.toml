@@ -8,4 +8,4 @@ edition = "2021"
 [dependencies]
 defmt = "^0.3.6"
 
-hal = { package = "stm32-hal2", path = "../stm32-hal" }
+hal = { package = "stm32-hal2", path = "../stm32-hal", features = ["g431"] }

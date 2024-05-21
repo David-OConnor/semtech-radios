@@ -4,7 +4,7 @@ use defmt::println;
 
 use crate::{
     params::{LoraSpreadingFactor, ModulationParams8x, PacketParams},
-    shared::{OpCode, RadioError, Register, Register::Reg8x, Register8x},
+    shared::{OpCode, RadioError, Register::Reg8x, Register8x},
     time_bytes_6x, time_bytes_8x, OperatingMode, PacketType, Radio, RadioConfig, FREQ_CONST_6X,
     FREQ_CONST_8X,
 };

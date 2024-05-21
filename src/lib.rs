@@ -10,7 +10,7 @@ pub mod spi_interface;
 mod status;
 
 use defmt::println;
-use hal::{dma::DmaChannel};
+use hal::dma::DmaChannel;
 
 // todo: Calibration on 8x?
 use crate::{
@@ -348,7 +348,6 @@ pub struct RadioConfig8x {
     /// Timeouts, in ms.
     pub tx_timeout: f32,
     pub rx_timeout: f32,
-    pub fallback_mode: FallbackMode,
     pub ramp_time: RampTime8x,
     /// In dBm. Ranges from -18 to +13. Defaults to max power.
     pub output_power: i8, // pub lora_network: LoraNetwork,
@@ -364,7 +363,6 @@ impl Default for RadioConfig8x {
             packet_params: Default::default(),
             tx_timeout: 0., // todo: Calculate this based on packet and mod params?
             rx_timeout: 0.,
-            fallback_mode: FallbackMode::StdbyRc,
             ramp_time: RampTime8x::R10, // todo: What should this be?
             output_power: 13,
         }
@@ -399,11 +397,7 @@ impl Radio {
         let tx_addr = 0;
         let rx_addr = 0;
 
-        let r8x = if let RadioConfig::R8x(_) = config {
-            true
-        } else {
-            false
-        };
+        let r8x = matches!(config, RadioConfig::R8x(_));
 
         let mut result = Self {
             config,
@@ -515,13 +509,10 @@ impl Radio {
             }
             // See DS, section 14.4: LoRa Operation, and similar.
             RadioConfig::R8x(ref config) => {
-                // prevents borrow mut error
-                let (dc_dc, fallback) = (config.dc_dc_enabled, config.fallback_mode);
-
                 // todo: This is breakigngs things...
                 // result
                 //     .interface
-                //     .write_op_word(OpCode::SetRegulatorMode, dc_dc as u8)?;
+                //     .write_op_word(OpCode::SetRegulatorMode, config.dc_dc_enabled as u8)?;
 
                 // todo: A/R. There's a subltety to it (See note below table 14-54)
                 // result.set_sync_word(network)?;
@@ -928,6 +919,7 @@ impl Radio {
             let mut irq_status_buf = [op_code, 0, 0, 0];
 
             self.interface.read(&mut irq_status_buf)?;
+
             let irq_status = u16::from_be_bytes([irq_status_buf[2], irq_status_buf[3]]);
             if irq_status & (0b11 << 5) != 0 {
                 // Mask for header CRC error or wrong CRC received.
@@ -943,10 +935,13 @@ impl Radio {
         self.clear_irq(&[Irq::RxDone, Irq::Timeout])?;
 
         let buf_status = self.get_rx_buffer_status()?;
-        println!(
-            "Buffer status. Status: {} len: {} start buf: {} ",
-            buf_status.status, buf_status.payload_len, buf_status.rx_start_buf_pointer
-        );
+        // println!(
+        //     "Buffer status. Status: {} len: {} start buf: {} ",
+        //     buf_status.status, buf_status.payload_len, buf_status.rx_start_buf_pointer
+        // );
+
+        self.interface.rx_payload_len = buf_status.payload_len;
+        self.interface.rx_payload_start = buf_status.rx_start_buf_pointer;
 
         if let RadioConfig::R6x(_) = self.config {
             self.implicit_header_to_workaround()?; // See eratta, section 15.3.
@@ -959,8 +954,6 @@ impl Radio {
             }
         }
 
-        // return Ok((RxBufferStatus {payload_len: 0, rx_start_buf_pointer: 0, status: 0}, CommandStatus::DataAvailable)); // todo t
-
         // 13. In case of a valid packet (CRC OK), start reading the packet
         // Note that in the case of a timeout, we get CommandStatus::Timeout, and don't try to read the data.
         if cmd_status == CommandStatus::DataAvailable {
@@ -971,28 +964,27 @@ impl Radio {
             // todo TS. It seems DMA may be at the core of your demons.
 
             // todo: This duplicate buffer prevents a borrow mut erroro for now. Change once we use DMA.
-            let mut test_buf = [0; RADIO_BUF_SIZE];
+            let mut buf = [0; RADIO_BUF_SIZE];
             //
             let op_code = match self.config {
                 RadioConfig::R6x(_) => OpCode::ReadBuffer as u8,
                 RadioConfig::R8x(_) => OpCode::ReadBuffer.val_8x(),
             };
 
-            test_buf[0] = op_code;
-            test_buf[1] = buf_status.rx_start_buf_pointer;
-            test_buf[2] = 0;
+            buf[0] = op_code;
+            buf[1] = buf_status.rx_start_buf_pointer;
+            buf[2] = 0;
 
             let payload_len = buf_status.payload_len as usize;
+            let buf_len = payload_len + 3;
 
-            if self
-                .interface
-                .read(&mut test_buf[..3 + payload_len])
-                .is_err()
-            {
+            if self.interface.read(&mut buf[..buf_len]).is_err() {
                 println!("Error reading the buffer");
             }
 
-            self.interface.read_buf[..payload_len + 3].copy_from_slice(&test_buf[..payload_len + 3])
+            // Transfer data from our SPI read buffer to our internal buffer; this includes
+            // only the payload.
+            self.interface.read_buf[..payload_len].copy_from_slice(&buf[3..buf_len])
         }
 
         // (Process the payload in the SPI Rx complete ISR)

@@ -286,11 +286,14 @@ impl Interface {
     pub fn rx_payload_from_buf(&mut self) -> &mut [u8] {
         // fn rx_payload_from_buf() -> &'static [u8] {
         // Note: This is the payload length as reported by the radio.
-        let payload_len = self.rx_payload_len as usize;
-        let payload_start = self.rx_payload_start as usize;
-        let payload_start_i = 3 + payload_start;
+        // let payload_len = self.rx_payload_len as usize;
+        // let payload_start = self.rx_payload_start as usize;
+        // let payload_start_i = 3 + payload_start;
 
-        &mut self.read_buf[payload_start_i..payload_start_i + payload_len]
+        // todo: This may not be accurate: We may have handled payload start i when creating read_buf.
+        // &mut self.read_buf[payload_start_i..payload_start_i + payload_len]
+
+        &mut self.read_buf[..self.rx_payload_len as usize]
     }
 
     //
