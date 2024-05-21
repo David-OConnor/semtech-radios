@@ -1,13 +1,25 @@
 //! Code relating to configuring the radio.
 
-use defmt::println;
-
 use crate::{
     params::{LoraSpreadingFactor, ModulationParams8x, PacketParams},
     shared::{OpCode, RadioError, Register::Reg8x, Register8x},
-    time_bytes_6x, time_bytes_8x, OperatingMode, PacketType, Radio, RadioConfig, FREQ_CONST_6X,
-    FREQ_CONST_8X,
+    OperatingMode, PacketType, Radio, RadioConfig,
 };
+
+// The timing factor used to convert between 24-bit integer timing conversions used
+// by the radio, and ms. Eg: Sleep Duration = sleepPeriod * 15.625 µs. Same for rx mode duration.
+// DS, section 13.1.7 (6x)
+//
+// Note: On 8x, we can choose from four of these. We use the same one as 6x, always, for now.
+const TIMING_FACTOR_MS_6X: f32 = 0.015_625;
+
+// Oscillator frequency in Mhz.
+const F_XTAL_6X: f32 = 32_000_000.;
+const F_XTAL_8X: f32 = 52_000_000.;
+
+// These constants are pre-computed
+const FREQ_CONST_6X: f32 = F_XTAL_6X / (1 << 25) as f32;
+const FREQ_CONST_8X: f32 = F_XTAL_8X / (1 << 18) as f32;
 
 impl Radio {
     /// 6x: See DS, section 13.4.1 for this computation.
@@ -33,13 +45,11 @@ impl Radio {
                 // configuration is handled internally by the transceiver, there is no need for the user to take this offset into account when
                 // configuring SetRfFrequency. This must be called after SetPacket type."
                 let rf_freq_raw = ((config.rf_freq as f32 / FREQ_CONST_8X) as u32).to_be_bytes();
-                // todo: Of note, the DS example for this seems wrong... Would like to close the loop on that.
-
                 self.interface.write(&[
                     OpCode::SetRfFrequency.val_8x(),
-                    rf_freq_raw[0],
                     rf_freq_raw[1],
                     rf_freq_raw[2],
+                    rf_freq_raw[3],
                 ])
             }
         }
@@ -338,4 +348,30 @@ impl Radio {
             }
         }
     }
+}
+
+/// Convert a f32 time in ms to 3 24-but unsigned integer bytes, used with the radio's system. Used for
+/// sleep, and Rx duration.
+/// This is defined a few times in the datasheet, including section 13.1.4.
+pub fn time_bytes_6x(time_ms: f32) -> [u8; 3] {
+    // Sleep Duration = sleepPeriod * 15.625 µs
+    let result = ((time_ms / TIMING_FACTOR_MS_6X) as u32).to_be_bytes();
+    [result[1], result[2], result[3]]
+}
+
+/// Convert a f32 time in ms to 3 24-but unsigned integer bytes, used with the radio's system.
+///
+/// Note: This is more flexible than 6x's, but we, for now, hard set the period base to be the same
+/// as 6x.
+/// See DS Table 11-24, and section 11.6.5.
+pub fn time_bytes_8x(time_ms: f32) -> [u8; 3] {
+    // Sleep Duration = PeriodBase * sleepPeriodBaseCount. (PeriodBase is what we set in the register)
+    // todo: QC order, etc
+    // let period_base = ((time_ms / TIMING_FACTOR_MS_6X) as u32).to_be_bytes();
+    let period_base = ((time_ms / TIMING_FACTOR_MS_6X) as u16).to_be_bytes();
+    // 0 in the first position defines th ebase period to be the 15.625 us value hard-coded for 6x.
+
+    // println!("PERIOD BASE: {:?}", period_base);
+
+    [0x00, period_base[0], period_base[1]]
 }

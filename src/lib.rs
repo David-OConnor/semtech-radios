@@ -19,21 +19,6 @@ use crate::{
     spi_interface::{Interface, Spi_, RADIO_BUF_SIZE},
 };
 
-/// The timing factor used to convert between 24-bit integer timing conversions used
-/// by the radio, and ms. Eg: Sleep Duration = sleepPeriod * 15.625 µs. Same for rx mode duration.
-/// DS, section 13.1.7 (6x)
-///
-/// Note: On 8x, we can choose from four of these. We use the same one as 6x, always, for now.
-const TIMING_FACTOR_MS_6X: f32 = 0.015_625;
-
-// Oscillator frequency in Mhz.
-const F_XTAL_6X: f32 = 32_000_000.;
-const F_XTAL_8X: f32 = 52_000_000.;
-
-// These constants are pre-computed
-const FREQ_CONST_6X: f32 = F_XTAL_6X / (1 << 25) as f32;
-const FREQ_CONST_8X: f32 = F_XTAL_8X / (1 << 18) as f32;
-
 // Error in the datasheet?
 const FIRMWARE_VERSION_8X_A: u16 = 0xA9B5;
 const FIRMWARE_VERSION_8X_B: u16 = 0xA9B7;
@@ -458,7 +443,7 @@ impl Radio {
         // this way in the part on section 9.1.
 
         // todo: This is breaking things on 8x, but we set it when receiving and transmitting.
-        // result.set_rf_freq()?;
+        result.set_rf_freq()?;
 
         // "In a second step, the user should define the modulation
         // parameter according to the chosen protocol with the command SetModulationParams(...)."
@@ -1126,28 +1111,3 @@ impl Radio {
 }
 
 // todo: Both radios: Should we use SetRxDutyCycle? Come back to later. (A sniff mode.)
-
-/// Convert a f32 time in ms to 3 24-but unsigned integer bytes, used with the radio's system. Used for
-/// sleep, and Rx duration.
-/// This is defined a few times in the datasheet, including section 13.1.4.
-fn time_bytes_6x(time_ms: f32) -> [u8; 3] {
-    // Sleep Duration = sleepPeriod * 15.625 µs
-    let result = ((time_ms / TIMING_FACTOR_MS_6X) as u32).to_be_bytes();
-    [result[1], result[2], result[3]]
-}
-
-/// Convert a f32 time in ms to 3 24-but unsigned integer bytes, used with the radio's system.
-///
-/// Note: This is more flexible than 6x's, but we, for now, hard set the period base to be the same
-/// as 6x.
-/// See DS Table 11-24, and section 11.6.5.
-fn time_bytes_8x(time_ms: f32) -> [u8; 3] {
-    // Sleep Duration = PeriodBase * sleepPeriodBaseCount. (PeriodBase is what we set in the register)
-    // todo: QC order, etc
-    let period_base = ((time_ms / TIMING_FACTOR_MS_6X) as u32).to_be_bytes();
-    // 0 in the first position defines th ebase period to be the 15.625 us value hard-coded for 6x.
-
-    // println!("PERIOD BASE: {:?}", period_base);
-
-    [0x00, period_base[2], period_base[3]]
-}
