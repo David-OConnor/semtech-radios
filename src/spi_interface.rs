@@ -74,13 +74,12 @@ impl Interface {
         // }
 
         let mut buf = [c, word];
-
         if self.spi.transfer(&mut buf).is_err() {
             self.pins.cs.set_high();
             return Err(RadioError::Spi);
         }
-
         let status = status::status_from_byte(buf[0], self.r8x);
+
         // println!("STATUS OP WORD WRITE: {:x}, {:?}", code as u8, status);
 
         self.pins.cs.set_high();

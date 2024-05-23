@@ -399,11 +399,6 @@ impl Radio {
             },
         };
 
-        if !r8x {
-            // Removed, due to using multiple radios on Meerkat.
-            result.interface.reset();
-        }
-
         // We use this firmware version as a sanity check.
         if r8x {
             let firmware_version = result
@@ -412,6 +407,9 @@ impl Radio {
             if ![FIRMWARE_VERSION_8X_A, FIRMWARE_VERSION_8X_B].contains(&firmware_version) {
                 return Err(RadioError::FirmwareVersion);
             }
+        } else {
+            // Removed on 8x, due to using multiple radios on Meerkat.
+            result.interface.reset();
         }
 
         // DS, section 9.1:
@@ -442,7 +440,6 @@ impl Radio {
         // Note: In the Tx/Rx recipes in the DS, this is before setting mod parameters; but it's not listed
         // this way in the part on section 9.1.
 
-        // todo: This is breaking things on 8x, but we set it when receiving and transmitting.
         result.set_rf_freq()?;
 
         // "In a second step, the user should define the modulation
@@ -549,14 +546,29 @@ impl Radio {
             }
         }
 
+        // 1. If not in STDBY_RC mode, then go to this mode with the command SetStandby(...)
+        self.set_op_mode(OperatingMode::StbyRc)?;
+
+        if !self.interface.r8x {
+            self.mod_quality_workaround();
+        }
+
+        self.set_rf_freq()?;
+
+        let tx_addr = 0;
+        let rx_addr = 0;
+        self.interface
+            .write(&[OpCode::SetBufferBaseAddress as u8, tx_addr, rx_addr])?;
+
+        self.set_packet_params()?;
+
         match &self.config {
             RadioConfig::R6x(_config) => {
-                // todo: 8x too?
-                // 1. If not in STDBY_RC mode, then go to this mode with the command SetStandby(...)
-                self.set_op_mode(OperatingMode::StbyRc)?;
+                // // 1. If not in STDBY_RC mode, then go to this mode with the command SetStandby(...)
+                // (above)
 
                 // See DS, section 15.1.2: Work around this eratta before each transmission
-                self.mod_quality_workaround()?;
+                // (above)
 
                 // 2. Define the protocol (LoRa® or FSK) with the command SetPacketType(...)
                 // (Set on init)
@@ -564,8 +576,7 @@ impl Radio {
                 //     .write_op_word(OpCode::SetPacketType, self.config.packet_type as u8)?;
 
                 // 3. Define the RF frequency with the command SetRfFrequency(...)
-
-                self.set_rf_freq()?;
+                // (above)
 
                 // 4. Define the Power Amplifier configuration with the command SetPaConfig(...)
                 // (Set on init)
@@ -575,13 +586,9 @@ impl Radio {
                 // (Set on init)
 
                 // 6. Define where the data payload will be stored with the command SetBufferBaseAddress(...)
-                let tx_addr = 0;
-                let rx_addr = 0;
-                self.interface
-                    .write(&[OpCode::SetBufferBaseAddress as u8, tx_addr, rx_addr])?;
+                // (above)
 
                 // 7. Send the payload to the data buffer with the command WriteBuffer(...)
-                let offset = 0;
                 // todo: Put back when reading.
                 // self.interface
                 //     .write_with_payload(payload, offset)?;
@@ -626,7 +633,7 @@ impl Radio {
                 // (Handled in firmware GPIO ISR)
             }
             RadioConfig::R8x(_config) => {
-                self.set_rf_freq()?;
+                // self.set_rf_freq()?;
 
                 // 1. Define the output power and ramp time by sending the command:
                 // (Set on init)
@@ -668,9 +675,6 @@ impl Radio {
                 // If a timeout is desired, set periodBaseCount to a non-zero value. This timeout can be used to avoid deadlock.
                 // Wait for IRQ TxDone or RxTxTimeout
                 // Once a packet has been sent or a timeout has occurred, the transceiver goes automatically to STDBY_RC mode.
-
-                // todo: Packet params?
-                // self.set_packet_params()?;
 
                 self.start_transmission()?; // todo: Handle in ISR once using DMA.
                                             // (Handled in SPI Tx complete ISR)
@@ -777,7 +781,7 @@ impl Radio {
                 self.interface
                     .write(&[OpCode::SetBufferBaseAddress.val_8x(), tx_addr, rx_addr])?;
 
-                // self.set_rf_freq()?;
+                self.set_rf_freq()?;
 
                 // 1. Configure the DIOs and Interrupt sources (IRQs) by using command:
                 // SetDioIrqParams(irqMask,dio1Mask,dio2Mask,dio3Mask)

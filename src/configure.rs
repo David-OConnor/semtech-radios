@@ -190,10 +190,9 @@ impl Radio {
                         p6 = config.packet_params.invert_iq.val_6x();
                     }
                     PacketType::LrFhssFlrc => {
-                        // todo: Implement for 8x: FHSS.
                         unimplemented!()
                     }
-                    _ => unimplemented!(), // BLE and Ranging.
+                    _ => unimplemented!(),
                 }
 
                 // todo: Confirm we can ignore unused params.
