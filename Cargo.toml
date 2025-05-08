@@ -2,8 +2,18 @@
 name = "semtech_radios"
 version = "0.1.0"
 edition = "2024"
+authors = ["David O'Connor <the_alchemist@fastmail.com>"]
+description = "Support for Semtech SX126x and SX128x LoRa radios"
+keywords = ["lora", "embedded", "semtech", "sx126x", "sx128x"]
+categories = [
+    "no-std",
+]
+repository = "https://github.com/David-OConnor/semtech-readios"
+documentation = "https://docs.rs/semtech_radios"
+readme = "README.md"
+license = "MIT"
+exclude = [".gitignore"]
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
 defmt = "^1.0.1"
