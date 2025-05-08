@@ -16,7 +16,7 @@ use hal::dma::DmaChannel;
 use crate::{
     params::{ModulationParams8x, ModulationParamsLora6x, PacketParams, PacketParamsLora},
     shared::{OpCode, RadioError, RadioPins, Register, Register::Reg8x, Register6x, Register8x},
-    spi_interface::{Interface, Spi_, RADIO_BUF_SIZE},
+    spi_interface::{Interface, RADIO_BUF_SIZE, Spi_},
 };
 
 // Error in the datasheet?
@@ -148,7 +148,7 @@ impl Default for OutputPower6x {
 impl OutputPower6x {
     /// See datasheet, table 13-21
     /// For HP Max: 0 - 7. Do not set above 7, or you could cause early aging of the device. 7 sets max power,
-    ///  achieve +22dBm.
+    /// achieve +22dBm.
     pub fn dutycycle_hpmax(&self) -> (u8, u8) {
         match self {
             Self::Db14 => (0x02, 0x02),
@@ -378,6 +378,8 @@ impl Radio {
         pins: RadioPins,
         tx_ch: DmaChannel,
         rx_ch: DmaChannel,
+        // set_cs_low: impl FnMut(&mut T), // todo testin
+        set_cs_low: impl FnMut(), // todo testin
     ) -> Result<Self, RadioError> {
         let tx_addr = 0;
         let rx_addr = 0;
@@ -532,11 +534,11 @@ impl Radio {
 
         // Separate to prevent borrow errors.
         match &mut self.config {
-            RadioConfig::R6x(ref mut config) => {
+            RadioConfig::R6x(config) => {
                 config.rf_freq = rf_freq;
                 config.packet_params.payload_len = payload_len as u8;
             }
-            RadioConfig::R8x(ref mut config) => {
+            RadioConfig::R8x(config) => {
                 config.rf_freq = rf_freq;
 
                 match &mut config.packet_params {
@@ -562,128 +564,145 @@ impl Radio {
 
         self.set_packet_params()?;
 
-        match &self.config {
-            RadioConfig::R6x(_config) => {
-                // // 1. If not in STDBY_RC mode, then go to this mode with the command SetStandby(...)
-                // (above)
+        // todo: Put back when reading.
+        // self.interface
+        //     .write_with_payload(payload, offset)?;
 
-                // See DS, section 15.1.2: Work around this eratta before each transmission
-                // (above)
-
-                // 2. Define the protocol (LoRa® or FSK) with the command SetPacketType(...)
-                // (Set on init)
-                // self.interface
-                //     .write_op_word(OpCode::SetPacketType, self.config.packet_type as u8)?;
-
-                // 3. Define the RF frequency with the command SetRfFrequency(...)
-                // (above)
-
-                // 4. Define the Power Amplifier configuration with the command SetPaConfig(...)
-                // (Set on init)
-                // self.set_pa_config()?;
-
-                // 5. Define output power and ramping time with the command SetTxParams(...)
-                // (Set on init)
-
-                // 6. Define where the data payload will be stored with the command SetBufferBaseAddress(...)
-                // (above)
-
-                // 7. Send the payload to the data buffer with the command WriteBuffer(...)
-                // todo: Put back when reading.
-                // self.interface
-                //     .write_with_payload(payload, offset)?;
-
-                // todo: Having trouble with SPI DMA writes (but reads work) Skipping for now; blocking.
-                {
-                    // let mut write_buf = [0; RADIO_BUF_SIZE];
-                    // write_buf[0] = OpCode::WriteBuffer as u8;
-                    // write_buf[1] = offset;
-                    // for (i, word) in payload.iter().enumerate() {
-                    //     write_buf[i + 2] = *word;
-                    // }
-                    self.interface.write(&write_buf[..2 + payload_len])?;
-                }
-
-                // 8. Define the modulation parameter according to the chosen protocol with the command SetModulationParams(...)1
-                // (set on init)
-                // self.set_mod_params()?;
-
-                // 9. Define the frame format to be used with the command SetPacketParams(...)
-                // (set on init)
-                // self.set_packet_params()?;
-
-                // 10. Configure DIO and IRQ: use the command SetDioIrqParams(...) to select TxDone IRQ and map this IRQ to a DIO (DIO1,
-                // DIO2 or DIO3)
-                // (Currently without DMA, this is handled in `start_transmission`.)
-                // (See `handle_tx_post_payload_write()`).
-
-                // 11. Define Sync Word value: use the command WriteReg(...) to write the value of the register via direct register access
-                // (Set on init)
-                // self.set_sync_word(self.config.lora_network)?;
-
-                // 12. Set the circuit in transmitter mode to start transmission with the command SetTx(). Use the parameter to enable
-                // Timeout
-                self.start_transmission()?; // todo: Handle in ISR once using DMA.
-                                            // (Handled in SPI Tx complete ISR)
-
-                // 13. Wait for the IRQ TxDone or Timeout: once the packet has been sent the chip goes automatically to STDBY_RC mode
-                // (Handled by waiting for a firmware GPIO ISR)
-
-                // 14. Clear the IRQ TxDone flag. Ie: radio.clear_irq(&[Irq::TxDone, Irq::Timeout])?;
-                // (Handled in firmware GPIO ISR)
-            }
-            RadioConfig::R8x(_config) => {
-                // self.set_rf_freq()?;
-
-                // 1. Define the output power and ramp time by sending the command:
-                // (Set on init)
-
-                // 2. Send the payload to the data buffer by sending the command:
-                // WriteBuffer(offset,*data)
-                // where *data is a pointer to the payload and offset is the address at which the first byte of the payload will be located in the
-                // buffer. Offset will correspond to txBaseAddress in normal operation.
-
-                // todo: DRY with 6x.
-                let offset = 0;
-                // todo: Put back when reading.
-                // self.interface
-                //     .write_with_payload(payload, offset)?;
-
-                // todo: Having trouble with SPI DMA writes (but reads work) Skipping for now; blocking.
-                {
-                    // let mut write_buf = [0; RADIO_BUF_SIZE];
-                    // write_buf[0] = OpCode::WriteBuffer as u8;
-                    // write_buf[1] = offset;
-                    // for (i, word) in payload.iter().enumerate() {
-                    //     write_buf[i + 2] = *word;
-                    // }
-                    self.interface.write(&write_buf[..2 + payload_len])?;
-                }
-
-                // 3. Configure the DIOs and Interrupt sources (IRQs) by sending the command:
-                // SetDioIrqParams(irqMask,dio1Mask,dio2Mask,dio3Mask)
-                // In a typical Tx operation the user can select one or several IRQ sources:
-                // •TxDone IRQ to indicate the end of packet transmission. The transceiver will be in STDBY_RC mode.
-                // •RxTxTimeout (optional) to make sure no deadlock can happen. The transceiver will return automatically to STDBY_RC
-                // mode if a timeout occurs.
-
-                // (Currently without DMA, this is handled in `start_transmission`.)
-                // (See `handle_tx_post_payload_write()`).
-
-                // 4. Once configured, set the transceiver in transmitter mode to start transmission by sending the command:
-                // SetTx(periodBase, periodBaseCount[15:8], periodBaseCount[7:0])
-                // If a timeout is desired, set periodBaseCount to a non-zero value. This timeout can be used to avoid deadlock.
-                // Wait for IRQ TxDone or RxTxTimeout
-                // Once a packet has been sent or a timeout has occurred, the transceiver goes automatically to STDBY_RC mode.
-
-                self.start_transmission()?; // todo: Handle in ISR once using DMA.
-                                            // (Handled in SPI Tx complete ISR)
-
-                // 5.Clear TxDone or RxTxTimeout IRQ by sending the command:
-                // ClrIrqStatus(irqStatus)
-                // (Handled in firmware GPIO ISR)
-            }
+        // todo: Having trouble with SPI DMA writes (but reads work) Skipping for now; blocking.
+        {
+            // let mut write_buf = [0; RADIO_BUF_SIZE];
+            // write_buf[0] = OpCode::WriteBuffer as u8;
+            // write_buf[1] = offset;
+            // for (i, word) in payload.iter().enumerate() {
+            //     write_buf[i + 2] = *word;
+            // }
+            self.interface.write(&write_buf[..2 + payload_len])?;
         }
+
+        self.start_transmission()?; // todo: Handle in ISR once using DMA.
+
+        // match &self.config {
+        //     RadioConfig::R6x(_config) => {
+        //         // // 1. If not in STDBY_RC mode, then go to this mode with the command SetStandby(...)
+        //         // (above)
+        //
+        //         // See DS, section 15.1.2: Work around this eratta before each transmission
+        //         // (above)
+        //
+        //         // 2. Define the protocol (LoRa® or FSK) with the command SetPacketType(...)
+        //         // (Set on init)
+        //         // self.interface
+        //         //     .write_op_word(OpCode::SetPacketType, self.config.packet_type as u8)?;
+        //
+        //         // 3. Define the RF frequency with the command SetRfFrequency(...)
+        //         // (above)
+        //
+        //         // 4. Define the Power Amplifier configuration with the command SetPaConfig(...)
+        //         // (Set on init)
+        //         // self.set_pa_config()?;
+        //
+        //         // 5. Define output power and ramping time with the command SetTxParams(...)
+        //         // (Set on init)
+        //
+        //         // 6. Define where the data payload will be stored with the command SetBufferBaseAddress(...)
+        //         // (above)
+        //
+        //         // 7. Send the payload to the data buffer with the command WriteBuffer(...)
+        //         // todo: Put back when reading.
+        //         // self.interface
+        //         //     .write_with_payload(payload, offset)?;
+        //
+        //         // todo: Having trouble with SPI DMA writes (but reads work) Skipping for now; blocking.
+        //         {
+        //             // let mut write_buf = [0; RADIO_BUF_SIZE];
+        //             // write_buf[0] = OpCode::WriteBuffer as u8;
+        //             // write_buf[1] = offset;
+        //             // for (i, word) in payload.iter().enumerate() {
+        //             //     write_buf[i + 2] = *word;
+        //             // }
+        //             self.interface.write(&write_buf[..2 + payload_len])?;
+        //         }
+        //
+        //         // 8. Define the modulation parameter according to the chosen protocol with the command SetModulationParams(...)1
+        //         // (set on init)
+        //         // self.set_mod_params()?;
+        //
+        //         // 9. Define the frame format to be used with the command SetPacketParams(...)
+        //         // (set on init)
+        //         // self.set_packet_params()?;
+        //
+        //         // 10. Configure DIO and IRQ: use the command SetDioIrqParams(...) to select TxDone IRQ and map this IRQ to a DIO (DIO1,
+        //         // DIO2 or DIO3)
+        //         // (Currently without DMA, this is handled in `start_transmission`.)
+        //         // (See `handle_tx_post_payload_write()`).
+        //
+        //         // 11. Define Sync Word value: use the command WriteReg(...) to write the value of the register via direct register access
+        //         // (Set on init)
+        //         // self.set_sync_word(self.config.lora_network)?;
+        //
+        //         // 12. Set the circuit in transmitter mode to start transmission with the command SetTx(). Use the parameter to enable
+        //         // Timeout
+        //         self.start_transmission()?; // todo: Handle in ISR once using DMA.
+        //                                     // (Handled in SPI Tx complete ISR)
+        //
+        //         // 13. Wait for the IRQ TxDone or Timeout: once the packet has been sent the chip goes automatically to STDBY_RC mode
+        //         // (Handled by waiting for a firmware GPIO ISR)
+        //
+        //         // 14. Clear the IRQ TxDone flag. Ie: radio.clear_irq(&[Irq::TxDone, Irq::Timeout])?;
+        //         // (Handled in firmware GPIO ISR)
+        //     }
+        //     RadioConfig::R8x(_config) => {
+        //         // self.set_rf_freq()?;
+        //
+        //         // 1. Define the output power and ramp time by sending the command:
+        //         // (Set on init)
+        //
+        //         // 2. Send the payload to the data buffer by sending the command:
+        //         // WriteBuffer(offset,*data)
+        //         // where *data is a pointer to the payload and offset is the address at which the first byte of the payload will be located in the
+        //         // buffer. Offset will correspond to txBaseAddress in normal operation.
+        //
+        //         // todo: DRY with 6x.
+        //         let offset = 0;
+        //         // todo: Put back when reading.
+        //         // self.interface
+        //         //     .write_with_payload(payload, offset)?;
+        //
+        //         // todo: Having trouble with SPI DMA writes (but reads work) Skipping for now; blocking.
+        //         {
+        //             // let mut write_buf = [0; RADIO_BUF_SIZE];
+        //             // write_buf[0] = OpCode::WriteBuffer as u8;
+        //             // write_buf[1] = offset;
+        //             // for (i, word) in payload.iter().enumerate() {
+        //             //     write_buf[i + 2] = *word;
+        //             // }
+        //             self.interface.write(&write_buf[..2 + payload_len])?;
+        //         }
+        //
+        //         // 3. Configure the DIOs and Interrupt sources (IRQs) by sending the command:
+        //         // SetDioIrqParams(irqMask,dio1Mask,dio2Mask,dio3Mask)
+        //         // In a typical Tx operation the user can select one or several IRQ sources:
+        //         // •TxDone IRQ to indicate the end of packet transmission. The transceiver will be in STDBY_RC mode.
+        //         // •RxTxTimeout (optional) to make sure no deadlock can happen. The transceiver will return automatically to STDBY_RC
+        //         // mode if a timeout occurs.
+        //
+        //         // (Currently without DMA, this is handled in `start_transmission`.)
+        //         // (See `handle_tx_post_payload_write()`).
+        //
+        //         // 4. Once configured, set the transceiver in transmitter mode to start transmission by sending the command:
+        //         // SetTx(periodBase, periodBaseCount[15:8], periodBaseCount[7:0])
+        //         // If a timeout is desired, set periodBaseCount to a non-zero value. This timeout can be used to avoid deadlock.
+        //         // Wait for IRQ TxDone or RxTxTimeout
+        //         // Once a packet has been sent or a timeout has occurred, the transceiver goes automatically to STDBY_RC mode.
+        //
+        //         self.start_transmission()?; // todo: Handle in ISR once using DMA.
+        //                                     // (Handled in SPI Tx complete ISR)
+        //
+        //         // 5.Clear TxDone or RxTxTimeout IRQ by sending the command:
+        //         // ClrIrqStatus(irqStatus)
+        //         // (Handled in firmware GPIO ISR)
+        //     }
+        // }
 
         Ok(())
     }
@@ -707,13 +726,18 @@ impl Radio {
     /// (8x) 14.4.3
     /// todo: COnsider also using the SetDutyCycle sniff mode.
     pub fn receive(&mut self, max_payload_len: u8, rf_freq: u32) -> Result<(), RadioError> {
+        let timeout = match &self.config {
+            RadioConfig::R6x(config) => config.rx_timeout,
+            RadioConfig::R8x(config) => config.rx_timeout,
+        };
+
         // Config access is separate to prevent borrow errors.
         match &mut self.config {
-            RadioConfig::R6x(ref mut config) => {
+            RadioConfig::R6x(config) => {
                 config.rf_freq = rf_freq;
                 config.packet_params.payload_len = max_payload_len;
             }
-            RadioConfig::R8x(ref mut config) => {
+            RadioConfig::R8x(config) => {
                 config.rf_freq = rf_freq;
 
                 match &mut config.packet_params {
@@ -723,130 +747,49 @@ impl Radio {
             }
         }
 
-        match &self.config {
-            RadioConfig::R6x(config) => {
-                let timeout = config.rx_timeout; // prevents borrow errors.
+        // 1. If not in STDBY_RC mode, then set the circuit in this mode with the command SetStandby()
+        self.set_op_mode(OperatingMode::StbyRc)?;
 
-                // 1. If not in STDBY_RC mode, then set the circuit in this mode with the command SetStandby()
-                self.set_op_mode(OperatingMode::StbyRc)?;
+        // 2. Define the protocol (LoRa® or FSK) with the command SetPacketType(...)
+        // (Set on init)
+        // self.interface
+        //     .write_op_word(OpCode::SetPacketType, config.packet_type as u8)?;
 
-                // 2. Define the protocol (LoRa® or FSK) with the command SetPacketType(...)
-                // (Set on init)
-                // self.interface
-                //     .write_op_word(OpCode::SetPacketType, config.packet_type as u8)?;
+        // 3.Define the RF frequency with the command SetRfFrequency(...)
+        self.set_rf_freq()?;
 
-                // 3.Define the RF frequency with the command SetRfFrequency(...)
-                self.set_rf_freq()?;
+        // 4. Define where the data will be stored inside the data buffer in Rx with the command SetBufferBaseAddress(...)
+        // (Note: We may have to set this here, since I believe this setting auto-increments.)
+        let tx_addr = 0;
+        let rx_addr = 0;
+        self.interface
+            .write(&[OpCode::SetBufferBaseAddress as u8, tx_addr, rx_addr])?;
 
-                // 4. Define where the data will be stored inside the data buffer in Rx with the command SetBufferBaseAddress(...)
-                // (Note: We may have to set this here, since I believe this setting auto-increments.)
-                let tx_addr = 0;
-                let rx_addr = 0;
-                self.interface
-                    .write(&[OpCode::SetBufferBaseAddress as u8, tx_addr, rx_addr])?;
+        // 5. Define the modulation parameter according to the chosen protocol with the command SetModulationParams(...)1
+        // (Set on init)
+        // self.set_mod_params_sx126x()?;
 
-                // 5. Define the modulation parameter according to the chosen protocol with the command SetModulationParams(...)1
-                // (Set on init)
-                // self.set_mod_params_sx126x()?;
+        // 6. Define the frame format to be used with the command SetPacketParams(...)
+        // We must set this, as it may have been changed during a transmission to payload length.
+        // Set on init
+        // self.set_packet_params()?;
 
-                // 6. Define the frame format to be used with the command SetPacketParams(...)
-                // We must set this, as it may have been changed during a transmission to payload length.
-                // Set on init
-                // self.set_packet_params()?;
+        // 7. Configure DIO and irq: use the command SetDioIrqParams(...) to select the IRQ RxDone and map this IRQ to a DIO (DIO1
+        // or DIO2 or DIO3), set IRQ Timeout as well.
+        self.set_irq(&[], &[Irq::RxDone, Irq::Timeout])?; // DIO3.
 
-                // 7. Configure DIO and irq: use the command SetDioIrqParams(...) to select the IRQ RxDone and map this IRQ to a DIO (DIO1
-                // or DIO2 or DIO3), set IRQ Timeout as well.
-                self.set_irq(&[], &[Irq::RxDone, Irq::Timeout])?; // DIO3.
+        // 8. Define Sync Word value: use the command WriteReg(...) to write the value of the register via direct register access.
+        // (Set on init)
 
-                // 8. Define Sync Word value: use the command WriteReg(...) to write the value of the register via direct register access.
-                // (Set on init)
+        // todo: Allow continous mode (Both 6x and 8x): Setting timeout to 0xffffff allows
+        // todo receiving multiple packets. (0xffff on 8x)
 
-                // todo: Allow continous mode (Both 6x and 8x): Setting timeout to 0xffffff allows
-                // todo receiving multiple packets. (0xffff on 8x)
+        // 9. Set the circuit in reception mode: use the command SetRx(). Set the parameter to enable timeout or continuous mode
+        self.set_op_mode(OperatingMode::Rx(timeout))?;
 
-                // 9. Set the circuit in reception mode: use the command SetRx(). Set the parameter to enable timeout or continuous mode
-                self.set_op_mode(OperatingMode::Rx(timeout))?;
-
-                // 10. Wait for IRQ RxDone2 or Timeout: the chip will stay in Rx and look for a new packet if the continuous mode is selected
-                // otherwise it will goes to STDBY_RC mode.
-                // (The rest is handled in `cleanup_rx`, called from a firmware GPIO ISR).
-            }
-            RadioConfig::R8x(config) => {
-                let timeout = config.rx_timeout; // prevents borrow errors.
-
-                self.set_op_mode(OperatingMode::StbyRc)?;
-
-                let tx_addr = 0;
-                let rx_addr = 0;
-                self.interface
-                    .write(&[OpCode::SetBufferBaseAddress.val_8x(), tx_addr, rx_addr])?;
-
-                self.set_rf_freq()?;
-
-                // 1. Configure the DIOs and Interrupt sources (IRQs) by using command:
-                // SetDioIrqParams(irqMask,dio1Mask,dio2Mask,dio3Mask)
-
-                self.set_irq(&[], &[Irq::RxDone, Irq::Timeout])?; // DIO3.
-
-                // 2.Once configured, set the transceiver in receiver mode to start reception using command:
-                // SetRx(periodBase, periodBaseCount[15:8], periodBaseCount[7:0])
-                // Depending on periodBaseCount, 3 possible Rx behaviors are possible:
-                // •periodBaseCount is set 0, then no Timeout, Rx Single mode, the device will stay in Rx mode until a reception occurs and
-                // the device returns to STDBY_RC mode upon completion.
-                // •periodBaseCount is set 0xFFFF, Rx Continuous mode, the device remains in Rx mode until the host sends a command to
-                // change the operation mode. The device can receive several packets. Each time a packet is received, a packet received
-                // indication is given to the host and the device will continue to search for a new packet.
-                // •periodBaseCount is set to another value, then Timeout is active. The device remains in Rx mode; it returns automatically
-                // to STDBY_RC Mode on timer end-of-count or when a packet has been received. As soon as a packet is detected, the
-                // timer is automatically disabled to allow complete reception of the packet.
-
-                self.set_op_mode(OperatingMode::Rx(timeout))?;
-
-                // 3. In typical cases, use a timeout and wait for IRQ RxDone or RxTxTimeout.
-                // If IRQ RxDone is asserted, the transceiver goes to STDBY_RC mode if single mode is used (timeout set to a value different
-                // from 0xFFFF). If Continuous mode is used (timeout set to 0xFFFF) the transceiver stays in Rx and continues to listen for a
-                // new packet.
-                // 4. Check the packet status to make sure that the packet has been received properly, by sending the command:
-                // GetPacketStatus()
-                // The command returns the following parameters:
-                // • SnrPkt Estimation of SNR on last packet received. In two’s compliment format multiplied by 4.
-                // Actual SNR in dB =SnrPkt/4 , noting that only negative values should be used.
-
-                // 5. Once all checks are complete, clear IRQs by sending the command:
-                // ClrIrqStatus(irqMask)
-                // This command will reset the flag for which the corresponding bit position in irqMask is set to 1.
-                // Note:
-                // A DIO can be mapped to several IRQ sources (ORed with IRQ sources). The DIO will go to zero once IRQ flag has been
-                // set to zero.
-                // SX1280/SX1281
-                // Data Sheet
-                // Rev 3.2
-                // DS.SX1280-1.W.APP
-                // March 2020
-                // 135 of 158
-                // Semtech
-                // www.semtech.com
-
-                // 6.
-                // Get the packet length and start address of the received payload by sending the command:
-                // GetRxBufferStatus()
-                // This command returns the length of the last received packet (payloadLengthRx) and the address of the first byte received
-                // (rxStartBufferPointer). It is applicable to all modems. The address is an offset relative to the first byte of the data buffer.
-
-                // 7. Read the data buffer using the command:
-                // ReadBuffer(offset, payloadLengthRx)
-                // Where offset is equal to rxStartBufferPointer and payloadLengthRx is the size of buffer to read.
-
-                // 8. Optionally, the frequency error indicator (FEI) can be read from register 0x0954 (MSB) 0x0955, 0x0956 (LSB). The FEI is
-                // 2's complement (signed) 20 bit number: SignedFEIReading. This must be converted from two’s compliment to a signed
-                // FEI reading then, in turn, can be converted to a frequency error in Hz using the following formula:
-                // The resolution of the frequency error indicator measurement in LoRa mode is given by:
-                // FEI_RES [Hz] = 1 / (64 * Ts)
-                // Where Ts is the LoRa symbol time. The table below shows all possible FEI resolution combinations versus SF and bandwidth.
-                // (All values in milliseconds).
-                // (The rest is handled in `cleanup_rx`, called from a firmware GPIO ISR).
-            }
-        }
+        // 10. Wait for IRQ RxDone2 or Timeout: the chip will stay in Rx and look for a new packet if the continuous mode is selected
+        // otherwise it will goes to STDBY_RC mode.
+        // (The rest is handled in `cleanup_rx`, called from a firmware GPIO ISR).
 
         Ok(())
     }

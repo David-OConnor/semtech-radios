@@ -1,9 +1,9 @@
 //! Eratta workarounds
 
 use crate::{
+    PacketType, Radio, RadioConfig,
     params::LoraBandwidth6x,
     shared::{RadioError, Register, Register6x},
-    PacketType, Radio, RadioConfig,
 };
 
 impl Radio {

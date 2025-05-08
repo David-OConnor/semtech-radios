@@ -10,7 +10,7 @@ use hal::{
 
 use crate::{
     shared,
-    shared::{OpCode, RadioError, MAX_ITERS},
+    shared::{MAX_ITERS, OpCode, RadioError},
     status,
 };
 

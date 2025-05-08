@@ -3,9 +3,9 @@
 use defmt::println;
 
 use crate::{
-    shared::{OpCode, RadioError, RadioError::UnexpectedStatus},
     CommandStatus, OperatingModeRead, Radio, RadioConfig, RxBufferStatus, RxPacketStatusLora,
     RxStatistics6x,
+    shared::{OpCode, RadioError, RadioError::UnexpectedStatus},
 };
 
 impl Radio {
@@ -135,9 +135,11 @@ pub(crate) fn status_from_byte(
     let command_status = match c_s {
         1 => {
             if !r8x {
-                println!("1 returned for command status. Investigate (\"RFU\" in DS; the future is now.)");
+                println!(
+                    "1 returned for command status. Investigate (\"RFU\" in DS; the future is now.)"
+                );
                 CommandStatus::FailureToExecuteCommand // bogus
-                                                       // todo: This should be removed in favof of unexpected status.
+            // todo: This should be removed in favof of unexpected status.
             } else {
                 CommandStatus::CommandProcessSuccess8x
             }

@@ -1,9 +1,9 @@
 //! Code relating to configuring the radio.
 
 use crate::{
+    OperatingMode, PacketType, Radio, RadioConfig,
     params::{LoraSpreadingFactor, ModulationParams8x, PacketParams},
     shared::{OpCode, RadioError, Register::Reg8x, Register8x},
-    OperatingMode, PacketType, Radio, RadioConfig,
 };
 
 // The timing factor used to convert between 24-bit integer timing conversions used
