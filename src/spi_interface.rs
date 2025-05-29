@@ -4,7 +4,7 @@ use defmt::println;
 use hal::{
     delay_us,
     dma::{ChannelCfg, DmaChannel, DmaPeriph},
-    pac::SPI1,
+    pac::{SPI1, SPI2},
     spi::Spi,
 };
 
@@ -14,7 +14,9 @@ use crate::{
     status,
 };
 
-pub type Spi_ = Spi<SPI1>;
+// todo: Don't hard-code!
+// pub type Spi_ = Spi<SPI1>;
+pub type Spi_ = Spi<SPI2>;
 
 // Note: Should be 256.
 pub const RADIO_BUF_SIZE: usize = 256;

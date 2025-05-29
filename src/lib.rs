@@ -9,7 +9,7 @@ pub mod shared;
 pub mod spi_interface;
 mod status;
 
-use defmt::println;
+use defmt::{Format, println};
 use hal::dma::DmaChannel;
 
 // todo: Calibration on 8x?
@@ -26,7 +26,7 @@ const FIRMWARE_VERSION_8X_B: u16 = 0xA9B7;
 /// 6x DS, 13.4.2. Table 13-38.  The switch from one frame to another must be done in STDBY_RC mode.
 /// 8x: Table 11-42.
 #[repr(u8)]
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, PartialEq, Format)]
 #[allow(dead_code)]
 pub enum PacketType {
     /// (G)Fsk
@@ -41,7 +41,7 @@ pub enum PacketType {
 }
 
 #[repr(u16)]
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Format)]
 #[allow(dead_code)]
 /// (SX126x only(?) DS, table 12-1. Differentiate the LoRa signal for Public or Private network.
 /// set the `LoRa Sync word MSB and LSB values to this.
@@ -53,7 +53,7 @@ pub enum LoraNetwork {
 /// DS, Table 13-41. Power ramp time. Titles correspond to ramp time in µs.
 /// todo: Figure out guidelines for setting this. The DS doesn't have much on it.
 #[repr(u8)]
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Format)]
 #[allow(dead_code)]
 pub enum RampTime6x {
     R10 = 0,
@@ -85,7 +85,7 @@ pub enum RampTime8x {
 /// 6x: DS, Table 13-29. repr as u16, since we use the values to bit-mask a 16-bit integer.
 /// 8x: DS, Table 11-73. repr as u16, since we use the values to bit-mask a 16-bit integer.
 #[repr(u16)]
-#[derive(Clone, Copy, defmt::Format)]
+#[derive(Clone, Copy, Format)]
 #[allow(dead_code)]
 pub enum Irq {
     TxDone = 0,
@@ -182,7 +182,7 @@ pub enum RxMode {
 /// 6x: DS, section 13.1.1. Table 13-2. For bit 2.
 /// 8x: DS, section 11.6.1. Table 11-17. For bit 0.
 #[repr(u8)]
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Format)]
 pub enum SleepConfig {
     /// "Ram flushed" on 8x.
     ColdStart = 0,
@@ -191,7 +191,7 @@ pub enum SleepConfig {
 }
 
 /// 6x DS, section 9. (And table 13-76) 8x: Table 11-5. (Called Circuit mode)
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Format)]
 #[allow(dead_code)]
 pub enum OperatingMode {
     /// In this mode, most of the radio internal blocks are powered down or in low power mode and optionally the RC64k clock
@@ -215,7 +215,7 @@ pub enum OperatingMode {
 /// (6x): DS, Table 13-76. (6x): Table 11-5
 /// Without the inner values, eg from read status, and without sleep, which can't be read.
 #[repr(u8)]
-#[derive(Clone, Copy, PartialEq, defmt::Format, Debug)]
+#[derive(Clone, Copy, PartialEq, Format, Debug)]
 pub enum OperatingModeRead {
     StbyRc = 2,
     StbyOsc = 3,
@@ -225,7 +225,7 @@ pub enum OperatingModeRead {
 }
 
 /// (6x): DS, section 13.5.2. (8x): Table 11-61
-#[derive(defmt::Format)]
+#[derive(Format)]
 pub struct RxBufferStatus {
     pub status: u8,
     pub payload_len: u8,
@@ -237,7 +237,7 @@ pub struct RxBufferStatus {
 /// units at the consumer side.
 /// todo: FSK A/R; same field count, but with different meanings.
 /// todo: For now, coopting for 8x as well.
-#[derive(defmt::Format, Default)]
+#[derive(Format, Default)]
 pub struct RxPacketStatusLora {
     pub status: u8,
     /// Average over last packet received of RSSI
@@ -260,7 +260,7 @@ pub struct RxStatistics6x {
 
 /// (6x): DS, section 13.5.1. 8x: Table 11-5
 #[repr(u8)]
-#[derive(Clone, Copy, PartialEq, defmt::Format, Debug)]
+#[derive(Clone, Copy, PartialEq, Format, Debug)]
 pub enum CommandStatus {
     /// Transceiver has successfully processed the command.
     /// 8x only.
@@ -379,7 +379,7 @@ impl Radio {
         tx_ch: DmaChannel,
         rx_ch: DmaChannel,
         // set_cs_low: impl FnMut(&mut T), // todo testin
-        set_cs_low: impl FnMut(), // todo testin
+        // set_cs_low: impl FnMut(), // todo testin
     ) -> Result<Self, RadioError> {
         let tx_addr = 0;
         let rx_addr = 0;
