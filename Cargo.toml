@@ -1,6 +1,6 @@
 [package]
 name = "semtech_radios"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2024"
 authors = ["David O'Connor <the_alchemist@fastmail.com>"]
 description = "Support for Semtech SX126x and SX128x LoRa radios"

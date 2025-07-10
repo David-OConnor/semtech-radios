@@ -518,9 +518,16 @@ impl Radio {
 
         let offset = 0;
 
+        // todo: QC this +2, along with the data below
+        if payload_len + 2 > RADIO_BUF_SIZE {
+            return Err(RadioError::PayloadSize(payload_len));
+        }
+
         self.interface.write_buf[0] = op_code;
         self.interface.write_buf[1] = offset;
         for (i, word) in payload.iter().enumerate() {
+            // todo: Note: This will cause an overflow if the payload is > 254 bytes.
+            // todo: Maybe make the buf len 258?
             self.interface.write_buf[i + 2] = *word;
         }
 
@@ -892,8 +899,6 @@ impl Radio {
             // self.interface
             //     // .read_with_payload(buf_status.payload_len, buf_status.rx_start_buf_pointer)?;
             //     .read_with_payload(buf_status.payload_len, 0)?;
-
-            // todo TS. It seems DMA may be at the core of your demons.
 
             // todo: This duplicate buffer prevents a borrow mut erroro for now. Change once we use DMA.
             let mut buf = [0; RADIO_BUF_SIZE];

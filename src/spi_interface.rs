@@ -19,7 +19,12 @@ use crate::{
 pub type Spi_ = Spi<SPI2>;
 
 // Note: Should be 256.
-pub const RADIO_BUF_SIZE: usize = 256;
+// pub const RADIO_BUF_SIZE: usize = 256;
+pub const MAX_OTA_SIZE: usize = 256;
+pub const RADIO_BUF_SIZE: usize = 256 + 3; // For the 3 header bytes?
+
+// // todo: - 3 for opcode, start buffer pointer, and the third byte?
+// pub const MAX_OTA_PAYLOAD: usize = RADIO_BUF_SIZE - 3;
 
 const AHB_FREQ: u32 = 170_000_000; // todo: temp hard-coded
 const DMA_PERIPH: DmaPeriph = DmaPeriph::Dma1; // todo: temp hard-coded
