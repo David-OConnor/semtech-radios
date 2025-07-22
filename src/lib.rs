@@ -732,10 +732,15 @@ impl Radio {
     /// (6x) Set the radio into receive mode. DS, section 14.3.
     /// (8x) 14.4.3
     /// todo: COnsider also using the SetDutyCycle sniff mode.
-    pub fn receive(&mut self, max_payload_len: u8, rf_freq: u32) -> Result<(), RadioError> {
-        let timeout = match &self.config {
-            RadioConfig::R6x(config) => config.rx_timeout,
-            RadioConfig::R8x(config) => config.rx_timeout,
+    pub fn receive(&mut self, max_payload_len: u8, rf_freq: u32, timeout_override: Option<f32>) -> Result<(), RadioError> {
+        let timeout = match timeout_override {
+            Some(t) => t,
+            None => {
+                match &self.config {
+                    RadioConfig::R6x(config) => config.rx_timeout,
+                    RadioConfig::R8x(config) => config.rx_timeout,
+                }
+            }
         };
 
         // Config access is separate to prevent borrow errors.
