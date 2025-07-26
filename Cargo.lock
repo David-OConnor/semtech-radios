@@ -18,12 +18,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "bare-metal"
-version = "1.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f8fe8f5a8a398345e52358e18ff07cc17a568fbca5c6f73873d3a62056309603"
-
-[[package]]
 name = "bitfield"
 version = "0.13.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -42,6 +36,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "baf1de4339761588bc0619e3cbc0120ee582ebb74b53b4efbf79117bd2da40fd"
 
 [[package]]
+name = "cfg_aliases"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "613afe47fcd5fac7ccf1db93babcb082c5994d996f20b8b159f2ad1658eb5724"
+
+[[package]]
 name = "chrono"
 version = "0.4.38"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -56,7 +56,7 @@ version = "0.7.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8ec610d8f49840a5b376c69663b6369e71f4b34484b9b2eb29fb918d92516cb9"
 dependencies = [
- "bare-metal 0.2.5",
+ "bare-metal",
  "bitfield",
  "embedded-hal",
  "volatile-register",
@@ -81,6 +81,12 @@ dependencies = [
  "quote",
  "syn",
 ]
+
+[[package]]
+name = "critical-section"
+version = "1.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "790eea4361631c5e7d22598ecd5723ff611904e3344ce8720784c93e3d83d40b"
 
 [[package]]
 name = "defmt"
@@ -235,11 +241,10 @@ checksum = "388a1df253eca08550bef6c72392cfe7c30914bf41df5269b68cbd6ff8f570a3"
 
 [[package]]
 name = "stm32-hal2"
-version = "1.9.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e552f5fdc8784f15135b43944944de958d35d754d40342eb5c28156a7ee666b8"
+version = "2.0.0"
 dependencies = [
  "cfg-if",
+ "cfg_aliases",
  "chrono",
  "cortex-m",
  "defmt",
@@ -251,25 +256,25 @@ dependencies = [
 
 [[package]]
 name = "stm32g4"
-version = "0.15.1"
+version = "0.16.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0281f5c2376fe28b6fcef2e932e43f61ec9185144c3d5f77a13a37529d57a1ff"
+checksum = "97bc6434066d2459f0e0834ade8b03e5c5e8d4aad84dc2ff50e56464e6104f4d"
 dependencies = [
- "bare-metal 1.0.0",
  "cortex-m",
  "cortex-m-rt",
+ "critical-section",
  "vcell",
 ]
 
 [[package]]
 name = "stm32wl"
-version = "0.15.1"
+version = "0.16.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "41c1f5cf5ee7f359ad4ca03f17628a01c43703e7d093e5bae9bef6b1ed55818f"
+checksum = "b02293431c834e65208ff94ebe4b8b7ddb955f0318f63f8458d598d875a8b236"
 dependencies = [
- "bare-metal 1.0.0",
  "cortex-m",
  "cortex-m-rt",
+ "critical-section",
  "vcell",
 ]
 

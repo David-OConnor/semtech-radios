@@ -443,7 +443,7 @@ impl Radio {
         // this way in the part on section 9.1.
 
         result.set_rf_freq()?;
-
+        
         // "In a second step, the user should define the modulation
         // parameter according to the chosen protocol with the command SetModulationParams(...)."
         result.set_mod_params()?;
